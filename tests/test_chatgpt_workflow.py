@@ -24,7 +24,8 @@ CHATGPT_CLIENT = HyprlandClient(address="0xabc", class_name="chatgpt")
 EXPECTED_CHATGPT_TARGET_WIDTH = 112
 EXPECTED_CHATGPT_TARGET_HEIGHT = 46
 EXPECTED_VISUAL_BOX_SIZE = 30
-EXPECTED_CHATGPT_APP_LOGO_ASSET = "assets/apps/chatgpt-logo-white.svg"
+EXPECTED_BUTTON_ONE_GLYPH = "󱚣"
+EXPECTED_BUTTON_ONE_FONT = "monospace"
 
 
 @dataclass
@@ -72,7 +73,12 @@ class ChatGPTWorkflowRenderTests(unittest.TestCase):
         )
         self.assertEqual(frame.reserved_center.x, EXPECTED_CHATGPT_TARGET_WIDTH)
         self.assertEqual(frame.reserved_center.height, NATIVE_HEIGHT)
-        self.assertEqual(frame.chatgpt_tile.logo_asset, EXPECTED_CHATGPT_APP_LOGO_ASSET)
+        self.assertIsNone(frame.chatgpt_tile.logo_asset)
+        self.assertEqual(frame.chatgpt_tile.logo_glyph, EXPECTED_BUTTON_ONE_GLYPH)
+        self.assertEqual(
+            frame.chatgpt_tile.logo_font_family,
+            EXPECTED_BUTTON_ONE_FONT,
+        )
         self.assertEqual(frame.chatgpt_tile.logo_box.width, EXPECTED_VISUAL_BOX_SIZE)
         self.assertEqual(frame.chatgpt_tile.logo_box.height, EXPECTED_VISUAL_BOX_SIZE)
         self.assertEqual(frame.chatgpt_tile.status_box.width, EXPECTED_VISUAL_BOX_SIZE)

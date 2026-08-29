@@ -205,7 +205,13 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
     ctx.rectangle(target.x, target.y, target.width, target.height)
     ctx.fill()
 
-    _draw_logo_box(ctx, tile.logo_box, tile.logo_asset)
+    _draw_logo_box(
+        ctx,
+        tile.logo_box,
+        tile.logo_asset,
+        tile.logo_glyph,
+        tile.logo_font_family,
+    )
     _draw_status_sign(ctx, tile.status_box, str(tile.status_sign))
 
     for herdr_tile in workflow.herdr_tiles:
@@ -218,7 +224,22 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
         ctx.fill()
 
 
-def _draw_logo_box(ctx, box, asset: str | None) -> None:
+def _draw_logo_box(
+    ctx,
+    box,
+    asset: str | None,
+    glyph: str | None,
+    font_family: str | None,
+) -> None:
+    if glyph is not None and font_family is not None:
+        ctx.set_source_rgb(0.11, 0.13, 0.16)
+        ctx.rectangle(box.x, box.y, box.width, box.height)
+        ctx.fill()
+        ctx.set_source_rgb(0.82, 0.88, 0.94)
+        ctx.select_font_face(font_family)
+        ctx.set_font_size(28)
+        _show_centered_text(ctx, glyph, box.x, box.y, box.width, box.height)
+        return
     _draw_identity_box(ctx, box, "C", asset)
 
 

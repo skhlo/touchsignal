@@ -16,7 +16,8 @@ from .herdr import (
 from .types import NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame, TouchEvent
 
 
-CHATGPT_APP_LOGO_ASSET = "assets/apps/chatgpt-logo-white.svg"
+BUTTON_ONE_GLYPH = "󱚣"
+BUTTON_ONE_FONT_FAMILY = "monospace"
 CHATGPT_TARGET_WIDTH = 112
 CHATGPT_TARGET_HEIGHT = 46
 HERDR_TARGET_WIDTH = 112
@@ -119,7 +120,9 @@ class ChatGPTTileFrame:
     target: Geometry
     logo_box: Geometry
     status_box: Geometry
-    logo_asset: str
+    logo_asset: str | None
+    logo_glyph: str | None
+    logo_font_family: str | None
     state: ChatGPTState
     status_sign: str
     pressed: bool = False
@@ -231,7 +234,9 @@ class ChatGPTWorkflow:
                 target=target,
                 logo_box=logo_box,
                 status_box=status_box,
-                logo_asset=CHATGPT_APP_LOGO_ASSET,
+                logo_asset=None,
+                logo_glyph=BUTTON_ONE_GLYPH,
+                logo_font_family=BUTTON_ONE_FONT_FAMILY,
                 state=state,
                 status_sign=_status_sign(state),
                 pressed=pressed,
@@ -509,7 +514,9 @@ class HerdrWorkflow:
             target=target,
             logo_box=logo_box,
             status_box=status_box,
-            logo_asset=CHATGPT_APP_LOGO_ASSET,
+            logo_asset=None,
+            logo_glyph=BUTTON_ONE_GLYPH,
+            logo_font_family=BUTTON_ONE_FONT_FAMILY,
             state=ChatGPTState.CLOSED,
             status_sign=_status_sign(ChatGPTState.CLOSED),
         )

@@ -112,6 +112,9 @@ side in equal 30-pixel boxes. Prototype letters stand in for final agent logos.
 Herdr tiles retain the workspace number so repeated agent identities remain
 distinguishable.
 
+Button one keeps the ChatGPT focus and launch action but uses the stock Omarchy
+agents robot glyph from the status bar as its visual mark.
+
 CPU and GPU temperatures are read-only. The GPU adapter reads dGPU runtime state
 first and accesses the temperature source only when that state already reports
 active. When the dGPU is suspended or its state is unknown, the GPU temperature
