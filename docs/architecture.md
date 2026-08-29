@@ -7,8 +7,9 @@ It separates observed machine facts from proposed implementation decisions.
 
 TouchSignal is an integration for Omarchy on the Intel MacBookPro16,1. It is not
 a general agent control plane, a replacement for Herdr, or an Omarchy shell
-fork. Herdr, Hyprland, the ChatGPT desktop app, and Omarchy themes are adapters
-around one small physical interface.
+fork. Herdr, Hyprland, and the ChatGPT desktop app are adapters around one small
+physical interface. Omarchy supplies the environment and stock system marks,
+not a live color palette.
 
 The intended feeling is calm and immediate. A tile responds when touched,
 commits only on release, states exactly what is known, and never traps the user
@@ -27,7 +28,7 @@ The following facts were observed on 2026-08-29 without changing system state.
 | DRM | `appletbdrm` is installed but unloaded. The visible DRM cards belong to Intel and AMD graphics. | Loading the module and claiming the new Touch Bar DRM card is an explicit, reversible hardware test. |
 | Input | The firmware layer exposes `Apple Inc. Touch Bar Display` as `/dev/input/event7` and a keyboard device, not a general touch surface. | A custom owner must rediscover the touch device after `appletbdrm` attaches instead of caching `event7`. |
 | Existing renderer | No tiny-dfr package, service, or other Touch Bar renderer is installed or running. | The project must preserve the kernel row, not assume a tiny-dfr service is the local fallback. |
-| Omarchy | Omarchy `4.0.1` is active and the effective theme is staged under `~/.local/state/omarchy/current/theme`. | Read the effective palette after theme staging; never edit packaged themes. |
+| Omarchy | Omarchy `4.0.1` is active and the stock agents mark is available through the bar's font alias. | Reuse stock marks read-only while keeping TouchSignal's contrast independent from theme changes. |
 | Herdr | Herdr `0.8.2`, protocol `20`, exposes session snapshots, workspace order, focus, lifecycle status, stable IDs, commands, and event subscriptions. | Herdr is the authoritative source and action surface for workspace tiles. |
 | ChatGPT app | Hyprland reports the running app with class `chatgpt`. | Version 0.1 can verify closed, open, and focused states, but not internal task lifecycle. |
 
@@ -37,7 +38,6 @@ One user service owns the product behavior. Its modules remain separate even if
 they initially run in one process.
 
 ```text
-Omarchy palette ----> theme adapter -----+
 Hyprland IPC -------> ChatGPT adapter ----+
 Herdr API ----------> Herdr adapter ------+--> normalized state --> tile model
 logind session -----> lifecycle adapter --+                         |
@@ -85,6 +85,13 @@ Herdr lifecycle values remain exactly:
 Each agent tile presents a logo and a non-color status sign in equally sized
 visual boxes. Color reinforces the sign but never replaces it. Accessible
 previews and diagnostic output use the full status label.
+
+Identity is strictly monochrome. The OLED panel and normal buttons are black;
+workspace numbers, logos, fallback marks, Ready signs, and Unknown signs are
+white. Needs input and Unavailable invert the whole button to white with black
+identity marks because those states require attention. The fixed lifecycle
+palette uses blue for Working, amber for Needs input, green for Done, and red
+for Unavailable. Pressed feedback uses neutral gray.
 
 The ChatGPT desktop adapter is deliberately narrower. With the verified local
 surface, it may report only `Closed`, `Open`, and `Focused`. It must not claim
@@ -167,52 +174,17 @@ implementation time rather than embedded as an Omarchy-specific shell command.
 
 TouchSignal remains independent from the Omarchy shell.
 
-### Theme source
+### Fixed contrast
 
-The effective palette is read from:
+The Touch Bar is its own OLED display, so desktop theme colors do not provide
+useful context and can reduce small-logo contrast. TouchSignal therefore keeps
+normal buttons black, reserves full white inversion for attention states, and
+uses one fixed semantic status palette across dark and light Omarchy themes. It
+does not watch theme files or install a theme hook.
 
-```text
-~/.local/state/omarchy/current/theme/colors.toml
-```
-
-Omarchy builds a `next-theme` directory, moves it into the current state, then
-runs `theme-set` hooks. Therefore a watcher must watch the parent current-state
-directory rather than retaining the old `colors.toml` inode.
-
-The semantic mapping is:
-
-| TouchSignal role | Omarchy token |
-| --- | --- |
-| panel background | `background` |
-| primary text | `foreground` |
-| secondary and unknown | `muted` |
-| selected or focused | `accent` |
-| working | `blue`, then `cyan` fallback |
-| blocked | `yellow`, then `orange` fallback |
-| done | `green` |
-| unavailable or error | `red` |
-| pressed feedback | `lighter_background` |
-
-The Touch Bar is its own display, so translucent material has no useful layer
-behind it. Version 0.1 uses an opaque theme-derived background for stable contrast
-and OLED legibility.
-
-### Theme notification
-
-The repository may ship a small hook that the user installs with:
-
-```bash
-omarchy hook install theme-set <touchsignal-theme-hook>
-```
-
-The installed copy belongs under
-`~/.config/omarchy/hooks/theme-set.d/`. It only signals the running user service
-to reread the effective palette. It does not restart the renderer, edit a theme,
-or write into `/usr/share/omarchy/`.
-
-If the hook is missing or fails, the parent-directory watcher still observes the
-atomic theme replacement. If both mechanisms fail, TouchSignal keeps the last
-valid palette rather than interrupting hardware ownership.
+TouchSignal may read stock Omarchy glyph and font definitions to match familiar
+system marks. It never edits `/usr/share/omarchy/` or requires a cloned shell
+plugin for Touch Bar rendering.
 
 TouchSignal's own configuration belongs under `~/.config/touchsignal/`, not
 `~/.config/omarchy/`.
@@ -270,8 +242,8 @@ Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1
   reacquires the devices without two owners;
 - logout restores the firmware row;
 - three suspend/resume cycles preserve touch, display, and fallback behavior;
-- switching from Nord to another dark theme, to a light theme, and back retints
-  the row without restarting the renderer;
+- switching between dark and light Omarchy themes leaves the fixed high-contrast
+  row legible without restarting the renderer;
 - idle CPU use is event-driven and remains below one percent of one core over a
   five-minute measurement;
 - the ChatGPT app tile launches and focuses only after Hyprland verification;

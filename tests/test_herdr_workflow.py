@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+import sys
 import unittest
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from unittest.mock import patch
 
 from touchbar_owner.chatgpt import HyprlandClient, HyprlandSnapshot
-from touchbar_owner.drm import HERDR_STATE_COLORS, PANEL_BACKGROUND, draw_runtime_frame
+from touchbar_owner.drm import (
+    HERDR_STATE_COLORS,
+    DARK_INK,
+    LIGHT_INK,
+    PANEL_BACKGROUND,
+    STATUS_SIGN_COLORS,
+    TILE_ATTENTION_BACKGROUND,
+    TILE_BACKGROUND,
+    _draw_logo_asset,
+    _tile_contrast,
+    draw_runtime_frame,
+)
 from touchbar_owner.herdr import (
     HERDR_REFRESH_SUBSCRIPTIONS,
     HerdrPane,
@@ -23,6 +36,7 @@ from touchbar_owner.workflow import (
     TOUCH_SLOP,
     VISUAL_BOX_SIZE,
     ChatGPTWorkflow,
+    Geometry,
     HerdrState,
     HerdrWorkflow,
     WorkflowFrame,
@@ -107,6 +121,7 @@ class RecordingContext:
     rectangles: list[tuple[int, int, int, int]] = field(default_factory=list)
     texts: list[str] = field(default_factory=list)
     colors: list[tuple[float, float, float]] = field(default_factory=list)
+    masks: list[tuple[object, int, int]] = field(default_factory=list)
 
     def set_source_rgb(self, red: float, green: float, blue: float) -> None:
         self.colors.append((red, green, blue))
@@ -119,6 +134,9 @@ class RecordingContext:
 
     def show_text(self, text: str) -> None:
         self.texts.append(text)
+
+    def mask_surface(self, surface: object, x: int, y: int) -> None:
+        self.masks.append((surface, x, y))
 
     def __getattr__(self, _name: str) -> Callable[..., None]:
         return lambda *_args, **_kwargs: None
@@ -279,7 +297,7 @@ class HerdrTilePresentationTests(unittest.TestCase):
             self.assertEqual(tile.status_sign, sign, status)
             self.assertEqual(tile.state_token, token, status)
 
-    def test_logo_and_status_boxes_share_equal_27_pixel_boxes(self) -> None:
+    def test_logo_and_status_boxes_share_equal_30_pixel_boxes(self) -> None:
         workspace, _ = make_workspace(1, agent="claude")
         workflow, _, _ = herdr_workflow(make_snapshot([(workspace, None)]))
 
@@ -363,11 +381,88 @@ class HerdrTilePresentationTests(unittest.TestCase):
         self.assertIn("?", context.texts)
         self.assertIn(HERDR_STATE_COLORS["unknown"], context.colors)
         self.assertIn(PANEL_BACKGROUND, context.colors)
+        self.assertIn(LIGHT_INK, context.colors)
+        self.assertIn(DARK_INK, context.colors)
         empty = workflow_frame.empty_slots[0].target
         self.assertNotIn(
             (empty.x, empty.y, empty.width, empty.height),
             context.rectangles,
         )
+
+    def test_fixed_palette_reserves_color_for_semantic_status(self) -> None:
+        white = (1.0, 1.0, 1.0)
+        blue = (0.20, 0.65, 1.0)
+        amber = (1.0, 0.65, 0.0)
+        green = (0.25, 0.90, 0.45)
+        red = (1.0, 0.25, 0.30)
+
+        self.assertEqual(LIGHT_INK, white)
+        self.assertEqual(DARK_INK, PANEL_BACKGROUND)
+        self.assertEqual(TILE_BACKGROUND, PANEL_BACKGROUND)
+        self.assertEqual(TILE_ATTENTION_BACKGROUND, white)
+        self.assertEqual(
+            set(HERDR_STATE_COLORS.values()),
+            {white, blue, amber, green, red},
+        )
+        self.assertEqual(
+            set(STATUS_SIGN_COLORS.values()),
+            {white, blue, amber, green, red},
+        )
+        self.assertEqual(
+            _tile_contrast(attention=False, pressed=False, pending=False),
+            (PANEL_BACKGROUND, LIGHT_INK),
+        )
+        self.assertEqual(
+            _tile_contrast(attention=True, pressed=False, pending=False),
+            (TILE_ATTENTION_BACKGROUND, DARK_INK),
+        )
+
+    def test_color_logo_assets_are_applied_as_black_alpha_masks(self) -> None:
+        class FakeSurface:
+            def __init__(self, _format: object, width: int, height: int) -> None:
+                self.width = width
+                self.height = height
+
+            @classmethod
+            def create_from_png(cls, _path: str) -> FakeSurface:
+                return cls("png", 512, 512)
+
+            def get_width(self) -> int:
+                return self.width
+
+            def get_height(self) -> int:
+                return self.height
+
+            def flush(self) -> None:
+                return None
+
+        class FakeMaskContext:
+            def __init__(self, _surface: FakeSurface) -> None:
+                return None
+
+            def __getattr__(self, _name: str) -> Callable[..., None]:
+                return lambda *_args, **_kwargs: None
+
+        class FakeCairo:
+            FORMAT_ARGB32 = "argb32"
+            ImageSurface = FakeSurface
+            Context = FakeMaskContext
+
+        context = RecordingContext()
+        box = Geometry(10, 8, VISUAL_BOX_SIZE, VISUAL_BOX_SIZE)
+
+        with patch.dict(sys.modules, {"cairo": FakeCairo()}):
+            drawn = _draw_logo_asset(
+                context,
+                box,
+                "assets/agents/claude-logo-light.png",
+                DARK_INK,
+            )
+
+        self.assertTrue(drawn)
+        self.assertEqual(context.colors[-1], DARK_INK)
+        self.assertEqual(len(context.masks), 1)
+        self.assertEqual(context.masks[0][1:], (box.x, box.y))
 
 
 class HerdrFocusActionTests(unittest.TestCase):
