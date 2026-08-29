@@ -10,7 +10,9 @@ Fn and media controls as a safe fallback.
 ## Status
 
 TouchSignal is in architecture and hardware-validation work. It does not yet
-ship an installable renderer, service, or system configuration.
+ship the full HUD, but it has an installable supervised Touch Bar owner runtime
+and reversible user-service helpers. The runtime still must not be enabled or
+attached to live hardware without an explicit operator action.
 
 The initial target is intentionally narrow:
 
@@ -59,6 +61,24 @@ PYTHONPATH=src python3 -m touchbar_owner.cli restore
 
 See [the owner spike notes](docs/hardware/touchbar-owner-spike.md) and
 [ADR 0001](docs/adr/0001-touchbar-owner-foundation.md).
+
+## Supervised runtime
+
+The supervised runtime checks the supported MacBookPro16,1 graphical session,
+required kernel modules, and device permissions before it claims hardware. It
+restores the firmware row before stop, logout, failed attach, and supervised
+restart.
+
+Install or remove the user service with:
+
+```bash
+python3 scripts/install-touchsignal-runtime
+python3 scripts/remove-touchsignal-runtime
+```
+
+These commands write or remove only the user unit under
+`~/.config/systemd/user/`. Removal disables the service and runs the firmware-row
+restore command.
 
 ## Documents
 

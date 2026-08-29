@@ -20,6 +20,10 @@ from .types import (
 
 
 class Host(Protocol):
+    def hardware_model(self) -> str: ...
+    def graphical_session_ready(self) -> bool: ...
+    def missing_kernel_modules(self) -> tuple[str, ...]: ...
+    def missing_permissions(self) -> tuple[str, ...]: ...
     def firmware_row(self) -> FirmwareRow: ...
     def baseline_firmware_row(self) -> FirmwareRow: ...
     def competing_renderers(self) -> tuple[str, ...]: ...
@@ -114,6 +118,10 @@ class FakeResourceSession:
 @dataclass
 class FakeHost:
     root: Path
+    model: str = "MacBookPro16,1"
+    graphical_session: bool = True
+    missing_modules: tuple[str, ...] = ()
+    permission_errors: tuple[str, ...] = ()
     competing: tuple[str, ...] = ()
     appletbdrm_appears: bool = True
     attach_succeeds: bool = True
@@ -127,6 +135,7 @@ class FakeHost:
     presented_surfaces: list[tuple[int, int]] = field(default_factory=list)
     queued_touch_events: list[TouchEvent] = field(default_factory=list)
     closed_sessions: list[str] = field(default_factory=list)
+    operations: list[str] = field(default_factory=list)
     _lock_fd: int | None = None
     _display: FakeDisplaySession | None = None
     _touch: FakeTouchSession | None = None
@@ -136,6 +145,18 @@ class FakeHost:
     def __post_init__(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock_path = self.root / "touchbar-owner.lock"
+
+    def hardware_model(self) -> str:
+        return self.model
+
+    def graphical_session_ready(self) -> bool:
+        return self.graphical_session
+
+    def missing_kernel_modules(self) -> tuple[str, ...]:
+        return self.missing_modules
+
+    def missing_permissions(self) -> tuple[str, ...]:
+        return self.permission_errors
 
     def baseline_firmware_row(self) -> FirmwareRow:
         return OBSERVED_BASELINE
@@ -185,6 +206,7 @@ class FakeHost:
         return devices
 
     def attach_display(self) -> DrmCard:
+        self.operations.append("attach")
         if not self.attach_succeeds:
             self.usb_configuration = FIRMWARE_CONFIG
             self.appletbdrm_loaded = False
@@ -199,6 +221,7 @@ class FakeHost:
         return cards[0]
 
     def restore_firmware_row(self) -> FirmwareRow:
+        self.operations.append("restore")
         self.usb_configuration = FIRMWARE_CONFIG
         self.special_key_mode = OBSERVED_BASELINE.special_key_mode
         self.fn_toggle = OBSERVED_BASELINE.fn_toggle
@@ -208,6 +231,7 @@ class FakeHost:
         return self.firmware_row()
 
     def acquire_lock(self) -> None:
+        self.operations.append("lock")
         fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o644)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -221,12 +245,14 @@ class FakeHost:
     def release_lock(self) -> None:
         if self._lock_fd is None:
             return
+        self.operations.append("unlock")
         fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
         os.close(self._lock_fd)
         self._lock_fd = None
         self.lock_path.unlink(missing_ok=True)
 
     def record_opened_drm(self, card: DrmCard) -> None:
+        self.operations.append(f"open:{card.path}")
         self.opened_drm_cards.append(card.path)
 
     def open_display(self, card: DrmCard) -> FakeDisplaySession:

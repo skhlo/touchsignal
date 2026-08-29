@@ -7,6 +7,7 @@ from time import monotonic, sleep as default_sleep
 from .host import DisplaySession, Host, ResourceSession, TouchSession
 from .types import (
     COMPETING_RENDERERS,
+    DRM_CONFIG,
     NATIVE_HEIGHT,
     NATIVE_WIDTH,
     OwnerState,
@@ -72,6 +73,15 @@ class TouchBarOwner:
         except RuntimeError as exc:
             raise OwnerError(str(exc)) from exc
         self._lock_held = True
+
+        row = self.host.firmware_row()
+        if not firmware_row_restored(row, self.host.baseline_firmware_row()):
+            if row.usb_configuration == DRM_CONFIG or row.appletbdrm_loaded:
+                restored = self.host.restore_firmware_row()
+                if not firmware_row_restored(restored, self.host.baseline_firmware_row()):
+                    raise OwnerError("firmware row could not be restored before claim")
+            else:
+                raise OwnerError("firmware row is not at the observed baseline")
 
         try:
             card = self.host.attach_display()
