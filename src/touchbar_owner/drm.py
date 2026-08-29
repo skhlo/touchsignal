@@ -143,20 +143,50 @@ DRM_MODE_MAP_DUMB = _iowr(0xB3, ctypes.sizeof(drm_mode_map_dumb))
 DRM_MODE_DESTROY_DUMB = _iowr(0xB4, ctypes.sizeof(drm_mode_destroy_dumb))
 DRM_MODE_CONNECTED = 1
 
+PANEL_BACKGROUND = (0.0, 0.0, 0.0)
+DARK_INK = PANEL_BACKGROUND
+LIGHT_INK = (1.0, 1.0, 1.0)
+SEMANTIC_BLUE = (0.20, 0.65, 1.0)
+SEMANTIC_AMBER = (1.0, 0.65, 0.0)
+SEMANTIC_GREEN = (0.25, 0.90, 0.45)
+SEMANTIC_RED = (1.0, 0.25, 0.30)
+
 HERDR_STATE_COLORS = {
-    "ready": (0.62, 0.68, 0.75),
-    "working": (0.45, 0.75, 1.00),
-    "blocked": (1.00, 0.68, 0.15),
-    "done": (0.45, 0.90, 0.55),
-    "unknown": (0.72, 0.72, 0.78),
-    "unavailable": (1.00, 0.35, 0.40),
+    "ready": LIGHT_INK,
+    "working": SEMANTIC_BLUE,
+    "blocked": SEMANTIC_AMBER,
+    "done": SEMANTIC_GREEN,
+    "unknown": LIGHT_INK,
+    "unavailable": SEMANTIC_RED,
 }
 
-PANEL_BACKGROUND = (0.0, 0.0, 0.0)
-TILE_BACKGROUND = (0.055, 0.060, 0.070)
-TILE_PRESSED_BACKGROUND = (0.13, 0.14, 0.16)
-TILE_PENDING_BACKGROUND = (0.11, 0.095, 0.045)
-TILE_UNAVAILABLE_BACKGROUND = (0.035, 0.035, 0.040)
+STATUS_SIGN_COLORS = {
+    "dot": LIGHT_INK,
+    "arrow": SEMANTIC_BLUE,
+    "check": SEMANTIC_GREEN,
+    "pending": SEMANTIC_AMBER,
+    "bang": SEMANTIC_RED,
+}
+
+TILE_BACKGROUND = PANEL_BACKGROUND
+TILE_ATTENTION_BACKGROUND = LIGHT_INK
+TILE_PRESSED_BACKGROUND = (0.20, 0.20, 0.20)
+TILE_PENDING_BACKGROUND = (0.08, 0.08, 0.08)
+
+
+def _tile_contrast(
+    *,
+    attention: bool,
+    pressed: bool,
+    pending: bool,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    if pressed:
+        return TILE_PRESSED_BACKGROUND, LIGHT_INK
+    if attention:
+        return TILE_ATTENTION_BACKGROUND, DARK_INK
+    if pending:
+        return TILE_PENDING_BACKGROUND, LIGHT_INK
+    return TILE_BACKGROUND, LIGHT_INK
 
 
 def select_connected_connector(probed, current):
@@ -193,14 +223,11 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
 
     tile = workflow.chatgpt_tile
     target = tile.target
-    if not tile.capability_available or tile.touch_cancelled:
-        background = TILE_UNAVAILABLE_BACKGROUND
-    elif tile.pressed:
-        background = TILE_PRESSED_BACKGROUND
-    elif tile.pending:
-        background = TILE_PENDING_BACKGROUND
-    else:
-        background = TILE_BACKGROUND
+    background, identity_ink = _tile_contrast(
+        attention=not tile.capability_available,
+        pressed=tile.pressed,
+        pending=tile.pending,
+    )
     ctx.set_source_rgb(*background)
     ctx.rectangle(target.x, target.y, target.width, target.height)
     ctx.fill()
@@ -211,6 +238,8 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
         tile.logo_asset,
         tile.logo_glyph,
         tile.logo_font_family,
+        background,
+        identity_ink,
     )
     _draw_status_sign(ctx, tile.status_box, str(tile.status_sign))
 
@@ -230,26 +259,35 @@ def _draw_logo_box(
     asset: str | None,
     glyph: str | None,
     font_family: str | None,
+    background,
+    foreground,
 ) -> None:
     if glyph is not None and font_family is not None:
-        ctx.set_source_rgb(0.11, 0.13, 0.16)
+        ctx.set_source_rgb(*background)
         ctx.rectangle(box.x, box.y, box.width, box.height)
         ctx.fill()
-        ctx.set_source_rgb(0.82, 0.88, 0.94)
+        ctx.set_source_rgb(*foreground)
         ctx.select_font_face(font_family)
         ctx.set_font_size(28)
         _show_centered_text(ctx, glyph, box.x, box.y, box.width, box.height)
         return
-    _draw_identity_box(ctx, box, "C", asset)
+    _draw_identity_box(ctx, box, "C", asset, background, foreground)
 
 
-def _draw_identity_box(ctx, box, label: str, asset: str | None = None) -> None:
-    ctx.set_source_rgb(0.11, 0.13, 0.16)
+def _draw_identity_box(
+    ctx,
+    box,
+    label: str,
+    asset: str | None,
+    background,
+    foreground,
+) -> None:
+    ctx.set_source_rgb(*background)
     ctx.rectangle(box.x, box.y, box.width, box.height)
     ctx.fill()
-    if asset is not None and _draw_logo_asset(ctx, box, asset):
+    if asset is not None and _draw_logo_asset(ctx, box, asset, foreground):
         return
-    ctx.set_source_rgb(0.72, 0.84, 0.94)
+    ctx.set_source_rgb(*foreground)
     ctx.select_font_face("Sans")
     ctx.set_font_size(16 if len(label) > 1 else 21)
     _show_centered_text(ctx, label, box.x, box.y, box.width, box.height)
@@ -257,19 +295,16 @@ def _draw_identity_box(ctx, box, label: str, asset: str | None = None) -> None:
 
 def _draw_herdr_tile(ctx, tile) -> None:
     target = tile.target
-    if tile.touch_cancelled or tile.source_lost or tile.focus_failed:
-        background = TILE_UNAVAILABLE_BACKGROUND
-    elif tile.pressed:
-        background = TILE_PRESSED_BACKGROUND
-    elif tile.pending:
-        background = TILE_PENDING_BACKGROUND
-    else:
-        background = TILE_BACKGROUND
+    background, identity_ink = _tile_contrast(
+        attention=tile.state_token in {"blocked", "unavailable"},
+        pressed=tile.pressed,
+        pending=tile.pending,
+    )
     ctx.set_source_rgb(*background)
     ctx.rectangle(target.x, target.y, target.width, target.height)
     ctx.fill()
 
-    ctx.set_source_rgb(0.82, 0.85, 0.90)
+    ctx.set_source_rgb(*identity_ink)
     ctx.select_font_face("Sans")
     ctx.set_font_size(13)
     _show_centered_text(
@@ -283,7 +318,14 @@ def _draw_herdr_tile(ctx, tile) -> None:
 
     identity = tile.identity_fallback or _workspace_fallback(tile.workspace_label)
     if tile.logo_box is not None:
-        _draw_identity_box(ctx, tile.logo_box, identity, tile.logo_asset)
+        _draw_identity_box(
+            ctx,
+            tile.logo_box,
+            identity,
+            tile.logo_asset,
+            background,
+            identity_ink,
+        )
     if tile.status_box is not None:
         _draw_status_sign(
             ctx,
@@ -302,43 +344,50 @@ def _workspace_fallback(label: str | None) -> str:
     return label[:2].upper()
 
 
-def _draw_logo_asset(ctx, box, asset: str) -> bool:
+def _draw_logo_asset(ctx, box, asset: str, foreground) -> bool:
     path = _resolve_asset_path(asset)
     if path is None:
         return False
     try:
-        if path.suffix.casefold() == ".png":
-            import cairo
+        import cairo
 
+        mask = cairo.ImageSurface(
+            cairo.FORMAT_ARGB32,
+            box.width,
+            box.height,
+        )
+        mask_context = cairo.Context(mask)
+        if path.suffix.casefold() == ".png":
             surface = cairo.ImageSurface.create_from_png(str(path))
             padding = 1
             scale = min(
                 (box.width - padding * 2) / surface.get_width(),
                 (box.height - padding * 2) / surface.get_height(),
             )
-            x = box.x + (box.width - surface.get_width() * scale) / 2
-            y = box.y + (box.height - surface.get_height() * scale) / 2
-            ctx.save()
-            ctx.translate(x, y)
-            ctx.scale(scale, scale)
-            ctx.set_source_surface(surface, 0, 0)
-            ctx.paint()
-            ctx.restore()
-            return True
+            x = (box.width - surface.get_width() * scale) / 2
+            y = (box.height - surface.get_height() * scale) / 2
+            mask_context.translate(x, y)
+            mask_context.scale(scale, scale)
+            mask_context.set_source_surface(surface, 0, 0)
+            mask_context.paint()
+        else:
+            import gi
 
-        import gi
+            gi.require_version("Rsvg", "2.0")
+            from gi.repository import Rsvg
 
-        gi.require_version("Rsvg", "2.0")
-        from gi.repository import Rsvg
+            handle = Rsvg.Handle.new_from_file(str(path))
+            handle.set_stylesheet(b"svg { color: #ffffff; }")
+            viewport = Rsvg.Rectangle()
+            viewport.x = 1
+            viewport.y = 1
+            viewport.width = box.width - 2
+            viewport.height = box.height - 2
+            handle.render_document(mask_context, viewport)
 
-        handle = Rsvg.Handle.new_from_file(str(path))
-        handle.set_stylesheet(b"svg { color: #8aadc9; }")
-        viewport = Rsvg.Rectangle()
-        viewport.x = box.x + 1
-        viewport.y = box.y + 1
-        viewport.width = box.width - 2
-        viewport.height = box.height - 2
-        handle.render_document(ctx, viewport)
+        mask.flush()
+        ctx.set_source_rgb(*foreground)
+        ctx.mask_surface(mask, box.x, box.y)
         return True
     except Exception:
         return False
@@ -353,13 +402,7 @@ def _resolve_asset_path(asset: str) -> Path | None:
 
 
 def _draw_status_sign(ctx, box, sign: str, *, color=None) -> None:
-    selected_color = color or {
-        "dot": (0.41, 0.46, 0.54),
-        "arrow": (0.54, 0.68, 0.80),
-        "check": (0.64, 0.75, 0.55),
-        "pending": (0.92, 0.80, 0.55),
-        "bang": (0.75, 0.38, 0.42),
-    }.get(sign, (0.41, 0.46, 0.54))
+    selected_color = color or STATUS_SIGN_COLORS.get(sign, LIGHT_INK)
     ctx.set_source_rgb(*selected_color)
     cx = box.x + box.width / 2
     cy = box.y + box.height / 2
