@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from touchbar_owner.chatgpt import HyprlandClient, HyprlandSnapshot
-from touchbar_owner.drm import HERDR_STATE_COLORS, draw_runtime_frame
+from touchbar_owner.drm import HERDR_STATE_COLORS, PANEL_BACKGROUND, draw_runtime_frame
 from touchbar_owner.herdr import (
     HERDR_REFRESH_SUBSCRIPTIONS,
     HerdrPane,
@@ -352,12 +352,19 @@ class HerdrTilePresentationTests(unittest.TestCase):
             (tile.target.x, tile.target.y, tile.target.width, tile.target.height),
             context.rectangles,
         )
+        self.assertEqual(
+            context.rectangles.count(
+                (tile.target.x, tile.target.y, tile.target.width, tile.target.height)
+            ),
+            1,
+        )
         self.assertIn("1", context.texts)
         self.assertIn("MY", context.texts)
         self.assertIn("?", context.texts)
         self.assertIn(HERDR_STATE_COLORS["unknown"], context.colors)
+        self.assertIn(PANEL_BACKGROUND, context.colors)
         empty = workflow_frame.empty_slots[0].target
-        self.assertIn(
+        self.assertNotIn(
             (empty.x, empty.y, empty.width, empty.height),
             context.rectangles,
         )

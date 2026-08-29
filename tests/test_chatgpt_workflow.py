@@ -23,7 +23,7 @@ from touchbar_owner.workflow import TOUCH_SLOP, ChatGPTState, ChatGPTWorkflow, G
 CHATGPT_CLIENT = HyprlandClient(address="0xabc", class_name="chatgpt")
 EXPECTED_CHATGPT_TARGET_WIDTH = 112
 EXPECTED_CHATGPT_TARGET_HEIGHT = 46
-EXPECTED_VISUAL_BOX_SIZE = 27
+EXPECTED_VISUAL_BOX_SIZE = 30
 EXPECTED_CHATGPT_APP_LOGO_ASSET = "assets/apps/chatgpt-logo-white.svg"
 
 

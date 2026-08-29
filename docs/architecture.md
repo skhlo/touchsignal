@@ -108,7 +108,7 @@ The workflow layer has three stable regions.
    and the power-profile control.
 
 Each agent hit target is 112 by 46 pixels. The logo and status sign sit side by
-side in equal 27-pixel boxes. Prototype letters stand in for final agent logos.
+side in equal 30-pixel boxes. Prototype letters stand in for final agent logos.
 Herdr tiles retain the workspace number so repeated agent identities remain
 distinguishable.
 

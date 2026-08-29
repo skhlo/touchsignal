@@ -144,13 +144,19 @@ DRM_MODE_DESTROY_DUMB = _iowr(0xB4, ctypes.sizeof(drm_mode_destroy_dumb))
 DRM_MODE_CONNECTED = 1
 
 HERDR_STATE_COLORS = {
-    "ready": (0.41, 0.46, 0.54),
-    "working": (0.54, 0.68, 0.80),
-    "blocked": (0.92, 0.72, 0.30),
-    "done": (0.64, 0.75, 0.55),
-    "unknown": (0.54, 0.57, 0.63),
-    "unavailable": (0.75, 0.38, 0.42),
+    "ready": (0.62, 0.68, 0.75),
+    "working": (0.45, 0.75, 1.00),
+    "blocked": (1.00, 0.68, 0.15),
+    "done": (0.45, 0.90, 0.55),
+    "unknown": (0.72, 0.72, 0.78),
+    "unavailable": (1.00, 0.35, 0.40),
 }
+
+PANEL_BACKGROUND = (0.0, 0.0, 0.0)
+TILE_BACKGROUND = (0.055, 0.060, 0.070)
+TILE_PRESSED_BACKGROUND = (0.13, 0.14, 0.16)
+TILE_PENDING_BACKGROUND = (0.11, 0.095, 0.045)
+TILE_UNAVAILABLE_BACKGROUND = (0.035, 0.035, 0.040)
 
 
 def select_connected_connector(probed, current):
@@ -181,22 +187,23 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
         draw_test_surface(ctx, width, height)
         return
 
-    ctx.set_source_rgb(0.06, 0.08, 0.11)
+    ctx.set_source_rgb(*PANEL_BACKGROUND)
     ctx.rectangle(0, 0, width, height)
     ctx.fill()
 
     tile = workflow.chatgpt_tile
     target = tile.target
-    ctx.set_source_rgb(*(0.15, 0.22, 0.32) if tile.pressed else (0.10, 0.14, 0.20))
+    if not tile.capability_available or tile.touch_cancelled:
+        background = TILE_UNAVAILABLE_BACKGROUND
+    elif tile.pressed:
+        background = TILE_PRESSED_BACKGROUND
+    elif tile.pending:
+        background = TILE_PENDING_BACKGROUND
+    else:
+        background = TILE_BACKGROUND
+    ctx.set_source_rgb(*background)
     ctx.rectangle(target.x, target.y, target.width, target.height)
     ctx.fill()
-
-    if not tile.capability_available or tile.touch_cancelled:
-        ctx.set_source_rgb(0.20, 0.23, 0.28)
-    else:
-        ctx.set_source_rgb(0.31, 0.40, 0.52)
-    ctx.rectangle(target.x, target.y, target.width, target.height)
-    ctx.stroke()
 
     _draw_logo_box(ctx, tile.logo_box, tile.logo_asset)
     _draw_status_sign(ctx, tile.status_box, str(tile.status_sign))
@@ -204,12 +211,9 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
     for herdr_tile in workflow.herdr_tiles:
         _draw_herdr_tile(ctx, herdr_tile)
 
-    for empty_slot in workflow.empty_slots:
-        _draw_empty_herdr_slot(ctx, empty_slot.target)
-
     reserved = workflow.reserved_center
     if reserved is not None:
-        ctx.set_source_rgb(0.08, 0.10, 0.14)
+        ctx.set_source_rgb(*PANEL_BACKGROUND)
         ctx.rectangle(reserved.x, reserved.y, reserved.width, reserved.height)
         ctx.fill()
 
@@ -219,37 +223,34 @@ def _draw_logo_box(ctx, box, asset: str | None) -> None:
 
 
 def _draw_identity_box(ctx, box, label: str, asset: str | None = None) -> None:
-    ctx.set_source_rgb(0.18, 0.24, 0.32)
+    ctx.set_source_rgb(0.11, 0.13, 0.16)
     ctx.rectangle(box.x, box.y, box.width, box.height)
     ctx.fill()
     if asset is not None and _draw_logo_asset(ctx, box, asset):
         return
-    ctx.set_source_rgb(0.54, 0.68, 0.80)
+    ctx.set_source_rgb(0.72, 0.84, 0.94)
     ctx.select_font_face("Sans")
-    ctx.set_font_size(14 if len(label) > 1 else 18)
+    ctx.set_font_size(16 if len(label) > 1 else 21)
     _show_centered_text(ctx, label, box.x, box.y, box.width, box.height)
 
 
 def _draw_herdr_tile(ctx, tile) -> None:
     target = tile.target
-    background = (0.15, 0.22, 0.32) if tile.pressed else (0.10, 0.14, 0.20)
+    if tile.touch_cancelled or tile.source_lost or tile.focus_failed:
+        background = TILE_UNAVAILABLE_BACKGROUND
+    elif tile.pressed:
+        background = TILE_PRESSED_BACKGROUND
+    elif tile.pending:
+        background = TILE_PENDING_BACKGROUND
+    else:
+        background = TILE_BACKGROUND
     ctx.set_source_rgb(*background)
     ctx.rectangle(target.x, target.y, target.width, target.height)
     ctx.fill()
 
-    if tile.touch_cancelled or tile.source_lost or tile.focus_failed:
-        border = (0.28, 0.30, 0.34)
-    elif tile.pending:
-        border = (0.92, 0.80, 0.55)
-    else:
-        border = (0.31, 0.40, 0.52)
-    ctx.set_source_rgb(*border)
-    ctx.rectangle(target.x, target.y, target.width, target.height)
-    ctx.stroke()
-
-    ctx.set_source_rgb(0.72, 0.77, 0.83)
+    ctx.set_source_rgb(0.82, 0.85, 0.90)
     ctx.select_font_face("Sans")
-    ctx.set_font_size(11)
+    ctx.set_font_size(13)
     _show_centered_text(
         ctx,
         str(tile.workspace_number),
@@ -271,12 +272,6 @@ def _draw_herdr_tile(ctx, tile) -> None:
         )
 
 
-def _draw_empty_herdr_slot(ctx, target) -> None:
-    ctx.set_source_rgb(0.12, 0.15, 0.19)
-    ctx.rectangle(target.x, target.y, target.width, target.height)
-    ctx.stroke()
-
-
 def _workspace_fallback(label: str | None) -> str:
     if not label:
         return "--"
@@ -295,7 +290,7 @@ def _draw_logo_asset(ctx, box, asset: str) -> bool:
             import cairo
 
             surface = cairo.ImageSurface.create_from_png(str(path))
-            padding = 3
+            padding = 1
             scale = min(
                 (box.width - padding * 2) / surface.get_width(),
                 (box.height - padding * 2) / surface.get_height(),
@@ -318,10 +313,10 @@ def _draw_logo_asset(ctx, box, asset: str) -> bool:
         handle = Rsvg.Handle.new_from_file(str(path))
         handle.set_stylesheet(b"svg { color: #8aadc9; }")
         viewport = Rsvg.Rectangle()
-        viewport.x = box.x + 3
-        viewport.y = box.y + 3
-        viewport.width = box.width - 6
-        viewport.height = box.height - 6
+        viewport.x = box.x + 1
+        viewport.y = box.y + 1
+        viewport.width = box.width - 2
+        viewport.height = box.height - 2
         handle.render_document(ctx, viewport)
         return True
     except Exception:
@@ -347,7 +342,7 @@ def _draw_status_sign(ctx, box, sign: str, *, color=None) -> None:
     ctx.set_source_rgb(*selected_color)
     cx = box.x + box.width / 2
     cy = box.y + box.height / 2
-    radius = min(box.width, box.height) * 0.28
+    radius = min(box.width, box.height) * 0.36
     if sign == "arrow":
         ctx.move_to(cx - radius, cy - radius)
         ctx.line_to(cx + radius, cy)
@@ -373,7 +368,7 @@ def _draw_status_sign(ctx, box, sign: str, *, color=None) -> None:
         ctx.fill()
     elif sign == "question":
         ctx.select_font_face("Sans")
-        ctx.set_font_size(19)
+        ctx.set_font_size(23)
         _show_centered_text(ctx, "?", box.x, box.y, box.width, box.height)
     else:
         ctx.arc(cx, cy, radius, 0.0, 6.283)

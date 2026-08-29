@@ -22,7 +22,7 @@ CHATGPT_TARGET_HEIGHT = 46
 HERDR_TARGET_WIDTH = 112
 HERDR_TARGET_HEIGHT = 46
 HERDR_SLOT_COUNT = 4
-VISUAL_BOX_SIZE = 27
+VISUAL_BOX_SIZE = 30
 TOUCH_SLOP = 10
 DEFAULT_PENDING_TIMEOUT = 5.0
 
@@ -365,7 +365,7 @@ def herdr_slot_geometry(index: int) -> Geometry:
 
 
 def chatgpt_visual_boxes(target: Geometry) -> tuple[Geometry, Geometry]:
-    gap = 9
+    gap = 7
     pair_width = VISUAL_BOX_SIZE * 2 + gap
     start_x = target.x + (target.width - pair_width) // 2
     y = target.y + (target.height - VISUAL_BOX_SIZE) // 2
