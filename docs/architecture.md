@@ -64,6 +64,11 @@ this machine before that decision is made.
 If that spike fails, the fallback design direction is a smaller Rust owner based
 on tiny-dfr's proven device model. Running both is never an option.
 
+The exclusive-owner spike selected the react-drm device model and recorded that
+choice in [ADR 0001](adr/0001-touchbar-owner-foundation.md). The production
+runtime still must not vendor the react-drm control center or run tiny-dfr
+beside TouchSignal.
+
 ### Normalized state
 
 Adapters publish values into one capability-gated state model. They do not draw
@@ -87,6 +92,10 @@ that the app is working, idle, or blocked until a stable Codex lifecycle source
 is available.
 
 ### Touch Bar layout
+
+The native MacBookPro16,1 surface is logical 2008 by 60 pixels, matching the
+measured appletbdrm mode of 60 by 2008. That size is model-specific. It is not
+a generic Touch Bar size and it is not a fallback from 2170 by 60.
 
 The workflow layer has three stable regions.
 
@@ -299,3 +308,6 @@ The following remain outside version 0.1:
 See [upstream implementation research](research/upstream.md) for cited source
 analysis of tiny-dfr, react-drm-for-touchbar, mac-touchbar-plus, OpenMicro, and
 Microbridge.
+
+See [the owner spike notes](hardware/touchbar-owner-spike.md) for the recovery
+command and reversal procedure.
