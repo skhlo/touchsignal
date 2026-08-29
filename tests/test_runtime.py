@@ -121,6 +121,21 @@ class RuntimePreflightTests(unittest.TestCase):
 
 
 class RuntimeOperationTests(unittest.TestCase):
+    def test_unchanged_visual_frame_is_not_presented_again(self) -> None:
+        with TemporaryDirectory() as raw:
+            host = FakeHost(Path(raw))
+            runtime = SupervisedRuntime(host)
+            runtime.start()
+            try:
+                self.assertEqual(len(host.presented_frames), 1)
+
+                runtime.process_once()
+                runtime.process_once()
+
+                self.assertEqual(len(host.presented_frames), 1)
+            finally:
+                runtime.stop()
+
     def test_runtime_carries_touch_through_state_frame_and_action(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))

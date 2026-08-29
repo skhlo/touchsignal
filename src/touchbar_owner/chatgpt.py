@@ -4,8 +4,10 @@ import json
 import os
 import shlex
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Protocol
 
 
@@ -77,17 +79,39 @@ def parse_active_address(raw: object) -> str | None:
 
 
 class LiveHyprlandChatGPTAdapter:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] = monotonic,
+        snapshot_interval: float = 4.0,
+    ) -> None:
+        self.clock = clock
+        self.snapshot_interval = snapshot_interval
+        self._cached_snapshot = HyprlandSnapshot.unavailable()
+        self._snapshot_at: float | None = None
+
     def snapshot(self) -> HyprlandSnapshot:
+        now = self.clock()
+        if (
+            self._snapshot_at is not None
+            and now >= self._snapshot_at
+            and now - self._snapshot_at < self.snapshot_interval
+        ):
+            return self._cached_snapshot
         try:
             clients = self._json(["hyprctl", "-j", "clients"])
             active = self._json(["hyprctl", "-j", "activewindow"])
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-            return HyprlandSnapshot.unavailable()
-        return HyprlandSnapshot(
-            available=True,
-            clients=parse_hyprland_clients(clients),
-            active_address=parse_active_address(active),
-        )
+            snapshot = HyprlandSnapshot.unavailable()
+        else:
+            snapshot = HyprlandSnapshot(
+                available=True,
+                clients=parse_hyprland_clients(clients),
+                active_address=parse_active_address(active),
+            )
+        self._cached_snapshot = snapshot
+        self._snapshot_at = self.clock()
+        return snapshot
 
     def request_focus(self, client: HyprlandClient) -> None:
         subprocess.run(

@@ -108,9 +108,12 @@ The workflow layer has three stable regions.
    and the power-profile control.
 
 Each agent hit target is 112 by 46 pixels. The logo and status sign sit side by
-side in equal 27-pixel boxes. Prototype letters stand in for final agent logos.
+side in equal 30-pixel boxes. Prototype letters stand in for final agent logos.
 Herdr tiles retain the workspace number so repeated agent identities remain
 distinguishable.
+
+Button one keeps the ChatGPT focus and launch action but uses the stock Omarchy
+agents robot glyph from the status bar as its visual mark.
 
 CPU and GPU temperatures are read-only. The GPU adapter reads dGPU runtime state
 first and accesses the temperature source only when that state already reports
