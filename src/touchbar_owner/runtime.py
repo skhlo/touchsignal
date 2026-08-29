@@ -52,6 +52,11 @@ class SupervisedRuntime:
     restart_delay: float = 1.0
     state: RuntimeState = field(default_factory=RuntimeState)
     _owner: TouchBarOwner | None = None
+    _last_presented_frame: RuntimeFrame | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     def preflight(self) -> None:
         model = self.host.hardware_model()
@@ -94,6 +99,7 @@ class SupervisedRuntime:
         except Exception as exc:
             raise SupervisedRuntimeError(str(exc)) from exc
         self._owner = owner
+        self._last_presented_frame = None
         self.state.running = True
         try:
             self._record_frame([])
@@ -117,6 +123,7 @@ class SupervisedRuntime:
     def stop(self) -> None:
         owner = self._owner
         self._owner = None
+        self._last_presented_frame = None
         self.state.running = False
         if owner is None:
             return
@@ -152,5 +159,24 @@ class SupervisedRuntime:
         if self._owner is None:
             raise SupervisedRuntimeError("runtime is not running")
         frame = self.renderer.render(touches)
-        self._owner.present_frame(frame)
-        self.state.frames.append(frame)
+        if not _same_visual_frame(frame, self._last_presented_frame):
+            self._owner.present_frame(frame)
+            self._last_presented_frame = frame
+            self.state.frames.append(frame)
+            return
+        if self.state.frames:
+            self.state.frames[-1] = frame
+        else:
+            self.state.frames.append(frame)
+
+
+def _same_visual_frame(
+    current: RuntimeFrame,
+    previous: RuntimeFrame | None,
+) -> bool:
+    if previous is None:
+        return False
+    return (
+        current.surface_size == previous.surface_size
+        and current.workflow_frame == previous.workflow_frame
+    )

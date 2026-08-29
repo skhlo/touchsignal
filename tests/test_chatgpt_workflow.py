@@ -10,6 +10,7 @@ from touchbar_owner.chatgpt import (
     DesktopEntryResolver,
     HyprlandClient,
     HyprlandSnapshot,
+    LiveHyprlandChatGPTAdapter,
     parse_active_address,
     parse_hyprland_clients,
 )
@@ -317,6 +318,40 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
 
 
 class ChatGPTAdapterParsingTests(unittest.TestCase):
+    def test_live_snapshot_polling_is_bounded(self) -> None:
+        clock = ManualClock()
+
+        class CountingAdapter(LiveHyprlandChatGPTAdapter):
+            def __init__(self) -> None:
+                super().__init__(clock=clock)
+                self.commands: list[tuple[str, ...]] = []
+
+            def _json(self, command: list[str]) -> object:
+                self.commands.append(tuple(command))
+                return [] if command[-1] == "clients" else {}
+
+        adapter = CountingAdapter()
+
+        for _ in range(20):
+            self.assertTrue(adapter.snapshot().available)
+        self.assertEqual(len(adapter.commands), 2)
+
+        clock.advance(1.0)
+        self.assertTrue(adapter.snapshot().available)
+        self.assertEqual(len(adapter.commands), 2)
+
+        clock.advance(1.0)
+        self.assertTrue(adapter.snapshot().available)
+        self.assertEqual(len(adapter.commands), 2)
+
+        clock.advance(1.0)
+        self.assertTrue(adapter.snapshot().available)
+        self.assertEqual(len(adapter.commands), 2)
+
+        clock.advance(1.0)
+        self.assertTrue(adapter.snapshot().available)
+        self.assertEqual(len(adapter.commands), 4)
+
     def test_hyprland_json_parsers_ignore_unusable_client_records(self) -> None:
         clients = parse_hyprland_clients([
             {"address": "0x1", "class": "chatgpt"},
