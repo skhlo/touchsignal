@@ -45,7 +45,23 @@ The current machine already has a kernel and firmware Fn/media row. TouchSignal
 must leave that row untouched when its prerequisites are unavailable and restore
 it after logout, suspend failure, renderer failure, or an intentional stop.
 
+## Touch Bar owner spike
+
+Issue #2 selected the react-drm device model as the exclusive owner foundation
+and kept tiny-dfr as the fallback direction. Live attach, physical touch, idle
+CPU, and suspend/resume remain open on issue #2. The spike tooling lives in
+`src/touchbar_owner/`. Restore USB configuration 1 with:
+
+```bash
+PYTHONPATH=src python3 -m touchbar_owner.cli restore
+```
+
+See [the owner spike notes](docs/hardware/touchbar-owner-spike.md) and
+[ADR 0001](docs/adr/0001-touchbar-owner-foundation.md).
+
 ## Documents
 
 - [Architecture analysis](docs/architecture.md)
 - [Upstream implementation research](docs/research/upstream.md)
+- [Touch Bar owner spike](docs/hardware/touchbar-owner-spike.md)
+- [ADR 0001: Touch Bar owner foundation](docs/adr/0001-touchbar-owner-foundation.md)
