@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -9,18 +10,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(command: list[str]) -> None:
+def python_command() -> list[str]:
+    if shutil.which("uv"):
+        return ["uv", "run", "python"]
+    return [sys.executable]
+
+
+def run(command: list[str], env: dict[str, str] | None = None) -> None:
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, cwd=ROOT, check=True)
+    subprocess.run(command, cwd=ROOT, check=True, env=env)
 
 
 def main() -> int:
-    run([sys.executable, "-m", "compileall", "-q", "src", "tests", "scripts"])
-    command = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"]
+    python = python_command()
+    run(python + ["-m", "compileall", "-q", "src", "tests", "scripts"])
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
-    print("+ PYTHONPATH=src", " ".join(command), flush=True)
-    subprocess.run(command, cwd=ROOT, check=True, env=env)
+    print("+ PYTHONPATH=src", " ".join(python + ["-m", "unittest", "discover", "-s", "tests", "-q"]), flush=True)
+    subprocess.run(python + ["-m", "unittest", "discover", "-s", "tests", "-q"], cwd=ROOT, check=True, env=env)
     run(["git", "diff", "--check"])
     return 0
 

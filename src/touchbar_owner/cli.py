@@ -12,7 +12,7 @@ from .discovery import competing_renderer_names, find_touchbar_usb, list_drm_car
 from .live import LiveHost
 from .owner import OwnerError, TouchBarOwner
 from .restore import restore_firmware_row
-from .types import OBSERVED_BASELINE
+from .types import OBSERVED_BASELINE, firmware_row_restored
 
 
 def _print_row(row) -> None:
@@ -62,13 +62,14 @@ def cmd_status(_args: argparse.Namespace) -> int:
     print(f"  input_group={_in_group('input')}")
     print(f"  usb_config_writable={config.is_file() and os.access(config, os.W_OK) if config else False}")
     print(f"  backlight_writable={_writable('/sys/class/backlight/appletb_backlight/brightness')}")
+    print(f"  uinput_writable={_writable('/dev/uinput')}")
     return 0
 
 
 def cmd_restore(_args: argparse.Namespace) -> int:
     row = restore_firmware_row()
     _print_row(row)
-    if row.usb_configuration != OBSERVED_BASELINE.usb_configuration:
+    if not firmware_row_restored(row, OBSERVED_BASELINE):
         return 1
     return 0
 
@@ -85,7 +86,7 @@ def cmd_claim(args: argparse.Namespace) -> int:
     signal.signal(signal.SIGTERM, handle_stop)
     try:
         owner.claim()
-    except OwnerError as exc:
+    except (OwnerError, OSError, PermissionError) as exc:
         print(f"claim failed: {exc}", file=sys.stderr)
         try:
             restore_firmware_row()
@@ -127,6 +128,7 @@ def cmd_claim(args: argparse.Namespace) -> int:
 def cmd_idle(args: argparse.Namespace) -> int:
     host = LiveHost()
     owner = TouchBarOwner(host)
+    rc = 0
     try:
         owner.claim()
         start = time.process_time()
@@ -139,23 +141,28 @@ def cmd_idle(args: argparse.Namespace) -> int:
         percent = (cpu / wall) * 100 if wall else 0.0
         print(json.dumps({"seconds": round(wall, 3), "cpu_seconds": round(cpu, 6), "percent_of_one_core": round(percent, 4)}))
         if percent >= 1.0:
-            return 2
-        return 0
+            rc = 2
     except OwnerError as exc:
         print(f"idle measurement failed: {exc}", file=sys.stderr)
-        return 1
+        rc = 1
     finally:
         try:
             owner.release()
-        except OwnerError:
-            restore_firmware_row()
+        except OwnerError as exc:
+            print(f"release failed: {exc}", file=sys.stderr)
+            try:
+                restore_firmware_row()
+            except Exception as restore_exc:
+                print(f"restore after failed release: {restore_exc}", file=sys.stderr)
+            rc = 1
+    return rc
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Exclusive Touch Bar owner spike")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="record the current firmware-row baseline").set_defaults(func=cmd_status)
-    sub.add_parser("restore", help="restore USB config 1 so the firmware row can rebind").set_defaults(func=cmd_restore)
+    sub.add_parser("restore", help="restore USB config 1, special-key mode, Fn, autodim, and brightness").set_defaults(func=cmd_restore)
     claim = sub.add_parser("claim", help="claim appletbdrm, draw the 2170x60 test surface, then restore")
     claim.add_argument("--seconds", type=float, default=20.0)
     claim.add_argument("--require-touch", action="store_true")
@@ -169,7 +176,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (OwnerError, RuntimeError, OSError, PermissionError) as exc:
+        command = getattr(args, "command", "command")
+        print(f"{command} failed: {exc}", file=sys.stderr)
+        try:
+            restore_firmware_row()
+        except Exception as restore_exc:
+            print(f"restore after failed {command}: {restore_exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

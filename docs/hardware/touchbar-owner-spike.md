@@ -59,11 +59,10 @@ python3 scripts/restore-touchbar-firmware-row
 ```
 
 The restore path switches USB 05ac:8302 back to configuration 1, which unbinds
-the appletbdrm display interface. That USB write is the restore contract.
-`hid_appletb_kbd` mode is read-only and is not rewritten. Fn toggle, autodim,
-and backlight brightness are best-effort. Brightness 0 still counts as
-restored when autodim remains enabled. Restore never modesets i915 or amdgpu
-and never loads or unloads kernel modules.
+the appletbdrm display interface, then restores special-key mode 2, Fn
+toggling, automatic dimming, and brightness 2. A failed write is an error.
+Brightness 0 still counts as restored when autodim remains enabled. Restore
+never modesets i915 or amdgpu and never loads or unloads kernel modules.
 
 If the configuration sysfs node is not writable, restore needs one privileged
 write to `bConfigurationValue`. Ask before that write. Do not load or unload
@@ -78,7 +77,7 @@ The selected foundation is the react-drm-for-touchbar device model:
 3. Switch USB 05ac:8302 from configuration 1 to configuration 2.
 4. Wait for the appletbdrm DRM card and open only that card.
 5. Rediscover the Touch Bar digitizer.
-6. Open backlight. Leave uinput closed until the Fn layer injects keys.
+6. Open backlight and uinput.
 7. Present a stable 2170 by 60 test surface.
 8. Restore the firmware row on normal stop or failed attach.
 
@@ -108,9 +107,8 @@ PYTHONPATH=src python3 -m touchbar_owner.cli idle --seconds 300
 
 1. Stop any `touchbar_owner` claim process.
 2. Run `PYTHONPATH=src python3 -m touchbar_owner.cli restore`.
-3. Confirm USB configuration 1 and no appletbdrm DRM card. Special-key mode 2,
-   Fn toggle Y, and autodim Y are the observed kernel readout. Brightness 0,
-   1, or 2 is restored when autodim remains enabled.
+3. Confirm USB configuration 1, special-key mode 2, Fn toggle Y, autodim Y,
+   brightness 2 or autodim brightness 0, and no appletbdrm DRM card.
 4. If `udev/99-touchsignal-touchbar-owner.rules` was installed, remove it,
    reload udev, and retrigger USB and backlight devices.
 5. Do not add the user to `video`. This spike uses the existing `input` group.

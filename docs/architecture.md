@@ -23,7 +23,7 @@ The following facts were observed on 2026-08-29 without changing system state.
 | Hardware | DMI reports `MacBookPro16,1`. | Version 0.1 may gate explicitly on this model. |
 | Kernel | `7.1.8-arch1-Watanare-T2-3-t2` from `linux-t2`. | The first hardware test must target this exact kernel line. |
 | Firmware row | `hid_appletb_kbd` is loaded in special-key mode `2`, Fn toggling is enabled, and automatic dimming is enabled. | A known-good Fn/media fallback already exists without tiny-dfr. |
-| Backlight | `hid_appletb_bl` is loaded at brightness `2`. | Fallback is USB configuration 1, which unbinds appletbdrm. Autodim may leave brightness at `0`. `hid_appletb_kbd` mode is read-only. |
+| Backlight | `hid_appletb_bl` is loaded at brightness `2`. | Fallback restoration must restore brightness as well as key mode. |
 | DRM | `appletbdrm` is installed but unloaded. The visible DRM cards belong to Intel and AMD graphics. | Loading the module and claiming the new Touch Bar DRM card is an explicit, reversible hardware test. |
 | Input | The firmware layer exposes `Apple Inc. Touch Bar Display` as `/dev/input/event7` and a keyboard device, not a general touch surface. | A custom owner must rediscover the touch device after `appletbdrm` attaches instead of caching `event7`. |
 | Existing renderer | No tiny-dfr package, service, or other Touch Bar renderer is installed or running. | The project must preserve the kernel row, not assume a tiny-dfr service is the local fallback. |
@@ -241,8 +241,8 @@ Fallback has two layers:
    brightness, playback, and volume controls. It does not duplicate the
    MacBookPro16,1 physical Escape key.
 2. When TouchSignal stops, fails, logs out, or cannot reattach after resume, its
-   detach helper releases the devices and restores USB configuration 1 so the
-   kernel firmware row can rebind. Autodim may leave brightness at 0.
+   detach helper releases the devices and restores the kernel firmware row,
+   special-key mode, Fn toggling, automatic dimming, and brightness.
 
 The supervisor starts only after graphical login and uses restart-on-failure.
 It quiesces and closes hardware before suspend, rediscovers devices after

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from time import monotonic, sleep as default_sleep
 
 from .host import DisplaySession, Host, ResourceSession, TouchSession
 from .types import (
@@ -21,10 +23,31 @@ class OwnerError(RuntimeError):
 class TouchBarOwner:
     host: Host
     state: OwnerState = field(default_factory=OwnerState)
+    wait: Callable[[float], None] = default_sleep
+    timeout: float = 20.0
     _display: DisplaySession | None = None
     _touch: TouchSession | None = None
     _backlight: ResourceSession | None = None
+    _virtual_input: ResourceSession | None = None
     _lock_held: bool = False
+
+    def _until(self, missing: str, probe):
+        deadline = monotonic() + self.timeout
+        while True:
+            try:
+                value = probe()
+            except Exception as exc:
+                value = None
+                last = exc
+            else:
+                last = None
+                if value:
+                    return value
+            if monotonic() >= deadline:
+                if last is not None:
+                    raise OwnerError(str(last)) from last
+                raise OwnerError(missing)
+            self.wait(0.05)
 
     def claim(self) -> None:
         try:
@@ -67,18 +90,25 @@ class TouchBarOwner:
         self._display = self.host.open_display(card)
         self.state.claimed.add("display")
 
-        digitizers = [
-            device
-            for device in self.host.list_touch_devices()
-            if device.is_touchbar_digitizer
-        ]
-        if not digitizers:
-            raise OwnerError("Touch Bar digitizer did not appear after attach")
+        digitizers = self._until(
+            "Touch Bar digitizer did not appear after attach",
+            lambda: [
+                device
+                for device in self.host.list_touch_devices()
+                if device.is_touchbar_digitizer
+            ],
+        )
         self._touch = self.host.open_touch(digitizers[0])
         self.state.claimed.add("touch")
 
-        self._backlight = self.host.open_backlight()
+        self._backlight = self._until(
+            "appletb_backlight was not found",
+            self.host.open_backlight,
+        )
         self.state.claimed.add("backlight")
+
+        self._virtual_input = self.host.open_virtual_input()
+        self.state.claimed.add("virtual_input")
 
         self._display.present_test_surface()
 
@@ -88,6 +118,7 @@ class TouchBarOwner:
             ("display", self._display),
             ("touch", self._touch),
             ("backlight", self._backlight),
+            ("virtual_input", self._virtual_input),
         ):
             if session is None:
                 continue
@@ -98,6 +129,7 @@ class TouchBarOwner:
         self._display = None
         self._touch = None
         self._backlight = None
+        self._virtual_input = None
         self.state.claimed.clear()
         restored = None
         if self._lock_held:

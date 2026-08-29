@@ -3,9 +3,8 @@
 TouchSignal needs one reversible owner for the MacBookPro16,1 Touch Bar. The
 spike compared `react-drm-for-touchbar` against tiny-dfr and selected the
 react-drm device model: USB configuration 2, appletbdrm DRM master, rediscovered
-digitizer, and backlight, with USB configuration 1 as the firmware-row
-fallback. uinput remains part of the later Fn layer, not of this spike's
-claim set. tiny-dfr remains the fallback direction if this model cannot be
+digitizer, backlight, and uinput, with USB configuration 1 as the firmware-row
+fallback. tiny-dfr remains the fallback direction if this model cannot be
 proved on this machine. Running both is never an option.
 
 ## Considered options
@@ -32,9 +31,8 @@ proved on this machine. Running both is never an option.
 
 Adapters never receive DRM, touch, backlight, or uinput handles. The owner is
 the only module allowed to switch USB 05ac:8302, open the appletbdrm card, or
-restore configuration 1. This spike opens display, touch, and backlight.
-uinput stays closed until the Fn layer injects keys. Intel and AMD DRM cards
-stay untouched.
+restore configuration 1. This spike opens display, touch, backlight, and
+uinput. Intel and AMD DRM cards stay untouched.
 
 ## Measurements
 

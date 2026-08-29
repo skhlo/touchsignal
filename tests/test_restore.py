@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from touchbar_owner.restore import restore_firmware_row
+from touchbar_owner.types import OBSERVED_BASELINE
 
 
 class RestoreTests(unittest.TestCase):
@@ -19,13 +20,13 @@ class RestoreTests(unittest.TestCase):
             self.assertFalse((root / "sys/class/drm/card3").exists())
             brightness = root / "sys/class/backlight/appletb_backlight/brightness"
             self.assertEqual(brightness.read_text().strip(), "2")
+            self.assertEqual(row, OBSERVED_BASELINE)
 
     def test_restore_is_safe_when_already_on_the_firmware_row(self) -> None:
         with TemporaryDirectory() as raw:
             root = self._write_attached_sysfs(Path(raw), config="1", brightness="2")
             row = restore_firmware_row(root)
-            self.assertEqual(row.usb_configuration, "1")
-            self.assertFalse(row.appletbdrm_loaded)
+            self.assertEqual(row, OBSERVED_BASELINE)
 
     def test_restore_does_not_write_read_only_mode(self) -> None:
         with TemporaryDirectory() as raw:
@@ -48,14 +49,10 @@ class RestoreTests(unittest.TestCase):
             self.assertFalse(any(path.endswith("/parameters/mode") for path in written))
             self.assertEqual(mode.read_text().strip(), "2")
 
-    def test_restore_succeeds_when_best_effort_parameter_writes_fail(self) -> None:
+    def test_restore_fails_when_fn_toggle_cannot_be_written(self) -> None:
         with TemporaryDirectory() as raw:
-            root = self._write_attached_sysfs(Path(raw), brightness="0")
-            blocked = {
-                root / "sys/module/hid_appletb_kbd/parameters/fntoggle",
-                root / "sys/module/hid_appletb_kbd/parameters/autodim",
-                root / "sys/class/backlight/appletb_backlight/brightness",
-            }
+            root = self._write_attached_sysfs(Path(raw))
+            blocked = {root / "sys/module/hid_appletb_kbd/parameters/fntoggle"}
             original_write = Path.write_text
 
             def refuse(self: Path, data: str, *args: object, **kwargs: object) -> int:
@@ -65,12 +62,69 @@ class RestoreTests(unittest.TestCase):
 
             Path.write_text = refuse  # type: ignore[method-assign]
             try:
-                row = restore_firmware_row(root)
+                with self.assertRaisesRegex(RuntimeError, "Fn toggle"):
+                    restore_firmware_row(root)
             finally:
                 Path.write_text = original_write  # type: ignore[method-assign]
-            self.assertEqual(row.usb_configuration, "1")
-            self.assertFalse(row.appletbdrm_loaded)
-            self.assertEqual(row.brightness, "0")
+
+    def test_restore_fails_when_autodim_cannot_be_written(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = self._write_attached_sysfs(Path(raw))
+            blocked = {root / "sys/module/hid_appletb_kbd/parameters/autodim"}
+            original_write = Path.write_text
+
+            def refuse(self: Path, data: str, *args: object, **kwargs: object) -> int:
+                if self in blocked:
+                    raise OSError(13, "permission denied")
+                return original_write(self, data, *args, **kwargs)
+
+            Path.write_text = refuse  # type: ignore[method-assign]
+            try:
+                with self.assertRaisesRegex(RuntimeError, "autodim"):
+                    restore_firmware_row(root)
+            finally:
+                Path.write_text = original_write  # type: ignore[method-assign]
+
+    def test_restore_fails_when_brightness_cannot_be_written(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = self._write_attached_sysfs(Path(raw), brightness="1")
+            blocked = {root / "sys/class/backlight/appletb_backlight/brightness"}
+            original_write = Path.write_text
+
+            def refuse(self: Path, data: str, *args: object, **kwargs: object) -> int:
+                if self in blocked:
+                    raise OSError(13, "permission denied")
+                return original_write(self, data, *args, **kwargs)
+
+            Path.write_text = refuse  # type: ignore[method-assign]
+            try:
+                with self.assertRaisesRegex(RuntimeError, "brightness"):
+                    restore_firmware_row(root)
+            finally:
+                Path.write_text = original_write  # type: ignore[method-assign]
+
+    def test_restore_fails_when_special_key_mode_stays_wrong(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = self._write_attached_sysfs(Path(raw), mode="1")
+            mode = root / "sys/module/hid_appletb_kbd/parameters/mode"
+            mode.chmod(0o444)
+            with self.assertRaisesRegex(RuntimeError, "special-key mode"):
+                restore_firmware_row(root)
+
+    def test_restore_fails_when_appletbdrm_card_remains(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = self._write_attached_sysfs(Path(raw))
+            original = restore_firmware_row.__globals__["shutil"].rmtree
+
+            def keep_card(path, ignore_errors=False):
+                return None
+
+            restore_firmware_row.__globals__["shutil"].rmtree = keep_card
+            try:
+                with self.assertRaisesRegex(RuntimeError, "appletbdrm"):
+                    restore_firmware_row(root)
+            finally:
+                restore_firmware_row.__globals__["shutil"].rmtree = original
 
     def test_restore_fails_if_usb_configuration_stays_two(self) -> None:
         with TemporaryDirectory() as raw:

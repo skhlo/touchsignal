@@ -21,7 +21,7 @@ class RestoreAndCleanupTests(unittest.TestCase):
             self.assertEqual(host.firmware_row(), OBSERVED_BASELINE)
             self.assertEqual(
                 set(host.closed_sessions),
-                {"display", "touch", "backlight"},
+                {"display", "touch", "backlight", "virtual_input"},
             )
             self.assertFalse(host.lock_path.exists())
 

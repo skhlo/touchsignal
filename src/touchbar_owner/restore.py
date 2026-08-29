@@ -6,23 +6,26 @@ from pathlib import Path
 from time import sleep as default_sleep
 
 from .discovery import appletbdrm_card, find_touchbar_usb, read_firmware_row
-from .types import FIRMWARE_CONFIG, OBSERVED_BASELINE, FirmwareRow
+from .types import FIRMWARE_CONFIG, OBSERVED_BASELINE, FirmwareRow, firmware_row_restored
 
 
 def _write_sysfs(path: Path, value: str) -> None:
     path.write_text(value if value.endswith("\n") else value + "\n")
 
 
-def _set_if_different(path: Path, desired: str) -> None:
+def _restore_parameter(path: Path, desired: str, label: str) -> None:
     if not path.exists():
-        return
+        raise RuntimeError(f"{label} was not found")
     current = path.read_text(encoding="utf-8", errors="replace").strip()
     if current == desired:
         return
     try:
         _write_sysfs(path, desired)
-    except OSError:
-        return
+    except OSError as exc:
+        raise RuntimeError(f"unable to restore {label}") from exc
+    current = path.read_text(encoding="utf-8", errors="replace").strip()
+    if current != desired:
+        raise RuntimeError(f"unable to restore {label}")
 
 
 def _switch_usb_to_firmware(usb: Path, sleep: Callable[[float], None], attempts: int = 10) -> None:
@@ -68,13 +71,34 @@ def restore_firmware_row(
         if root
         else Path("/sys/class/backlight/appletb_backlight/brightness")
     )
-    _set_if_different(module_root / "hid_appletb_kbd/parameters/fntoggle", OBSERVED_BASELINE.fn_toggle)
-    _set_if_different(module_root / "hid_appletb_kbd/parameters/autodim", OBSERVED_BASELINE.autodim)
-    _set_if_different(backlight, OBSERVED_BASELINE.brightness)
+    _restore_parameter(
+        module_root / "hid_appletb_kbd/parameters/mode",
+        OBSERVED_BASELINE.special_key_mode,
+        "special-key mode",
+    )
+    _restore_parameter(
+        module_root / "hid_appletb_kbd/parameters/fntoggle",
+        OBSERVED_BASELINE.fn_toggle,
+        "Fn toggle",
+    )
+    _restore_parameter(
+        module_root / "hid_appletb_kbd/parameters/autodim",
+        OBSERVED_BASELINE.autodim,
+        "autodim",
+    )
+    _restore_parameter(backlight, OBSERVED_BASELINE.brightness, "brightness")
+
+    actual = backlight.with_name("actual_brightness")
+    if actual.exists():
+        try:
+            _restore_parameter(actual, OBSERVED_BASELINE.brightness, "brightness")
+        except RuntimeError as exc:
+            if "was not found" in str(exc):
+                raise
 
     row = read_firmware_row(root)
-    if row.usb_configuration != FIRMWARE_CONFIG:
-        raise RuntimeError("firmware USB configuration was not restored")
     if appletbdrm_card(root) is not None:
         raise RuntimeError("appletbdrm card remained after USB configuration 1")
+    if not firmware_row_restored(row, OBSERVED_BASELINE):
+        raise RuntimeError("firmware row did not return to the observed baseline")
     return row

@@ -143,6 +143,12 @@ DRM_MODE_DESTROY_DUMB = _iowr(0xB4, ctypes.sizeof(drm_mode_destroy_dumb))
 DRM_MODE_CONNECTED = 1
 
 
+def copy_drm_mode(mode: drmModeModeInfo) -> drmModeModeInfo:
+    copied = drmModeModeInfo()
+    ctypes.memmove(ctypes.byref(copied), ctypes.byref(mode), ctypes.sizeof(drmModeModeInfo))
+    return copied
+
+
 def _libdrm() -> ctypes.CDLL:
     path = ctypes.util.find_library("drm") or "libdrm.so.2"
     lib = ctypes.CDLL(path)
@@ -228,7 +234,7 @@ def inspect_appletbdrm_card(path: str) -> DrmCard:
             if connector is None:
                 raise RuntimeError(f"no connected Touch Bar connector on {path}")
             try:
-                mode = connector.contents.modes[0]
+                mode = copy_drm_mode(connector.contents.modes[0])
                 rotate90 = False
                 for prop_index in range(connector.contents.count_props):
                     prop = lib.drmModeGetProperty(fd, connector.contents.props[prop_index])
@@ -382,7 +388,7 @@ def open_appletbdrm_display(card: DrmCard) -> LiveDisplaySession:
             if connector is None:
                 raise RuntimeError("no connected appletbdrm connector")
             try:
-                mode = connector.contents.modes[0]
+                mode = copy_drm_mode(connector.contents.modes[0])
                 conn_id = connector.contents.connector_id
                 crtc_id = 0
                 if connector.contents.encoder_id:
