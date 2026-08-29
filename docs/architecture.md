@@ -7,8 +7,8 @@ It separates observed machine facts from proposed implementation decisions.
 
 TouchSignal is an integration for Omarchy on the Intel MacBookPro16,1. It is not
 a general agent control plane, a replacement for Herdr, or an Omarchy shell
-fork. Herdr, Hyprland, the Codex app, and Omarchy themes are adapters around one
-small physical interface.
+fork. Herdr, Hyprland, the ChatGPT desktop app, and Omarchy themes are adapters
+around one small physical interface.
 
 The intended feeling is calm and immediate. A tile responds when touched,
 commits only on release, states exactly what is known, and never traps the user
@@ -29,7 +29,7 @@ The following facts were observed on 2026-08-29 without changing system state.
 | Existing renderer | No tiny-dfr package, service, or other Touch Bar renderer is installed or running. | The project must preserve the kernel row, not assume a tiny-dfr service is the local fallback. |
 | Omarchy | Omarchy `4.0.1` is active and the effective theme is staged under `~/.local/state/omarchy/current/theme`. | Read the effective palette after theme staging; never edit packaged themes. |
 | Herdr | Herdr `0.8.2`, protocol `20`, exposes session snapshots, workspace order, focus, lifecycle status, stable IDs, commands, and event subscriptions. | Herdr is the authoritative source and action surface for workspace tiles. |
-| Codex app | Hyprland reports the running app with class `chatgpt`. | Version 0.1 can verify closed, open, and focused states, but not internal task lifecycle. |
+| ChatGPT app | Hyprland reports the running app with class `chatgpt`. | Version 0.1 can verify closed, open, and focused states, but not internal task lifecycle. |
 
 ## Architecture
 
@@ -38,7 +38,7 @@ they initially run in one process.
 
 ```text
 Omarchy palette ----> theme adapter -----+
-Hyprland IPC -------> Codex adapter ------+
+Hyprland IPC -------> ChatGPT adapter ----+
 Herdr API ----------> Herdr adapter ------+--> normalized state --> tile model
 logind session -----> lifecycle adapter --+                         |
                                                                     v
@@ -86,10 +86,10 @@ Each agent tile presents a logo and a non-color status sign in equally sized
 visual boxes. Color reinforces the sign but never replaces it. Accessible
 previews and diagnostic output use the full status label.
 
-The Codex desktop adapter is deliberately narrower. With the verified local
+The ChatGPT desktop adapter is deliberately narrower. With the verified local
 surface, it may report only `Closed`, `Open`, and `Focused`. It must not claim
-that the app is working, idle, or blocked until a stable Codex lifecycle source
-is available.
+that the app is working, idle, or blocked. Agent lifecycle belongs to Herdr
+workspace tiles, including later Codex, Claude, Pi, and Grok agent identities.
 
 ### Touch Bar layout
 
@@ -99,7 +99,7 @@ a generic Touch Bar size and it is not a fallback from 2170 by 60.
 
 The workflow layer has three stable regions.
 
-1. The left agent dock contains one persistent Codex tile followed by four
+1. The left agent dock contains one persistent ChatGPT app tile followed by four
    stable Herdr workspace slots. Empty Herdr slots preserve geometry. A full
    four-workspace state therefore has five visible agent tiles.
 2. The center is reserved for future contextual information. Version 0.1 does not
@@ -147,9 +147,9 @@ Tap focuses the selected agent pane through Herdr's supported agent-focus
 surface. If the pane has no agent, it focuses the workspace. IDs always come
 from the current snapshot.
 
-### Codex app behavior
+### ChatGPT app behavior
 
-The Codex tile is always present.
+The ChatGPT app tile is always present.
 
 - If Hyprland reports a `chatgpt` client, tap focuses that client.
 - If it is absent, tap uses the installed desktop launcher and remains in an
@@ -234,8 +234,8 @@ the entire row or use decorative looping motion. The tile layout remains stable
 as labels and states update.
 
 TouchSignal is supplemental. Every action remains available through the normal
-keyboard, Herdr, Hyprland, and Codex interfaces. A Touch Bar failure cannot be
-the only route to an action.
+keyboard, Herdr, Hyprland, ChatGPT, and coding-agent interfaces. A Touch Bar
+failure cannot be the only route to an action.
 
 ## Fn and failure fallback
 
@@ -271,9 +271,9 @@ Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1
   the row without restarting the renderer;
 - idle CPU use is event-driven and remains below one percent of one core over a
   five-minute measurement;
-- the Codex tile launches and focuses only after Hyprland verification;
+- the ChatGPT app tile launches and focuses only after Hyprland verification;
 - one through four, and more than four, Herdr workspaces render in Herdr order;
-- the Codex tile remains visible beside all four Herdr workspace tiles;
+- the ChatGPT app tile remains visible beside all four Herdr workspace tiles;
 - the center remains reserved while CPU temperature, GPU temperature, and power
   profile remain the only right-side tiles;
 - a suspended dGPU dims the GPU tile without a temperature read or wake event;

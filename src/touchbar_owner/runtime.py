@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from time import sleep as default_sleep
+from typing import Protocol
 
 from .host import Host
 from .owner import OwnerError, TouchBarOwner
@@ -28,6 +29,10 @@ class PreflightError(RuntimeError):
     pass
 
 
+class Renderer(Protocol):
+    def render(self, touches: list[TouchEvent]) -> RuntimeFrame: ...
+
+
 class ProofRenderer:
     def render(self, touches: list[TouchEvent]) -> RuntimeFrame:
         last_touch = touches[-1] if touches else None
@@ -42,7 +47,7 @@ class ProofRenderer:
 class SupervisedRuntime:
     host: Host
     owner_factory: Callable[[Host], TouchBarOwner] = TouchBarOwner
-    renderer: ProofRenderer = field(default_factory=ProofRenderer)
+    renderer: Renderer = field(default_factory=ProofRenderer)
     wait: Callable[[float], None] = default_sleep
     restart_delay: float = 1.0
     state: RuntimeState = field(default_factory=RuntimeState)
@@ -144,4 +149,8 @@ class SupervisedRuntime:
             self.state.failures.append(str(exc))
 
     def _record_frame(self, touches: list[TouchEvent]) -> None:
-        self.state.frames.append(self.renderer.render(touches))
+        if self._owner is None:
+            raise SupervisedRuntimeError("runtime is not running")
+        frame = self.renderer.render(touches)
+        self._owner.present_frame(frame)
+        self.state.frames.append(frame)

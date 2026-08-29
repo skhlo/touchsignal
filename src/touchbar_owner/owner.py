@@ -11,6 +11,7 @@ from .types import (
     NATIVE_HEIGHT,
     NATIVE_WIDTH,
     OwnerState,
+    RuntimeFrame,
     TouchEvent,
     firmware_row_restored,
 )
@@ -123,8 +124,6 @@ class TouchBarOwner:
         self._virtual_input = self.host.open_virtual_input()
         self.state.claimed.add("virtual_input")
 
-        self._display.present_test_surface()
-
     def release(self) -> None:
         errors: list[str] = []
         for name, session in (
@@ -167,3 +166,19 @@ class TouchBarOwner:
         events = self._touch.read_events()
         self.state.touch_events.extend(events)
         return events
+
+    def present_test_surface(self) -> None:
+        if self._display is None:
+            raise OwnerError("display is not claimed")
+        try:
+            self._display.present_test_surface()
+        except Exception as exc:
+            raise OwnerError(str(exc)) from exc
+
+    def present_frame(self, frame: RuntimeFrame) -> None:
+        if self._display is None:
+            raise OwnerError("display is not claimed")
+        try:
+            self._display.present_frame(frame)
+        except Exception as exc:
+            raise OwnerError(str(exc)) from exc

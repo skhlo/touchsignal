@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import io
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
-import io
-from contextlib import redirect_stdout
 
 from touchbar_owner.cli import main
 from touchbar_owner.host import FakeHost
@@ -63,3 +64,43 @@ class CliTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(host.firmware_row(), OBSERVED_BASELINE)
             self.assertTrue(created)
+
+    def test_run_uses_the_product_runtime_factory(self) -> None:
+        with TemporaryDirectory() as raw:
+            host = FakeHost(Path(raw))
+            calls: list[object] = []
+
+            class OneCycleRuntime:
+                def __init__(self) -> None:
+                    self.state = SimpleNamespace(running=False)
+
+                def run_supervised(self, cycles: int | None = None, max_restarts: int = 1) -> None:
+                    calls.append(("run", cycles, max_restarts))
+                    host.graphical_session = False
+
+                def stop(self) -> None:
+                    calls.append(("stop",))
+
+            runtime = OneCycleRuntime()
+
+            def factory(live_host: object, *, restart_delay: float) -> OneCycleRuntime:
+                calls.append(("factory", live_host, restart_delay))
+                return runtime
+
+            with patch("touchbar_owner.cli.LiveHost", return_value=host):
+                with patch("touchbar_owner.cli.build_product_runtime", side_effect=factory):
+                    with redirect_stdout(io.StringIO()):
+                        rc = main([
+                            "run",
+                            "--poll-interval",
+                            "0",
+                            "--restart-delay",
+                            "0.25",
+                            "--max-restarts",
+                            "0",
+                        ])
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(calls[0], ("factory", host, 0.25))
+            self.assertIn(("run", 1, 0), calls)
+            self.assertIn(("stop",), calls)
