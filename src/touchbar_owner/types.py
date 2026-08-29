@@ -10,6 +10,7 @@ FIRMWARE_CONFIG = "1"
 DRM_CONFIG = "2"
 TOUCH_MAX_X = 32767
 TOUCH_MAX_Y = 127
+SUPPORTED_HARDWARE_MODEL = "MacBookPro16,1"
 
 COMPETING_RENDERERS = (
     "tiny-dfr",
@@ -96,3 +97,26 @@ class TouchEvent:
 class OwnerState:
     claimed: set[str] = field(default_factory=set)
     touch_events: list[TouchEvent] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RuntimeFrame:
+    surface_size: tuple[int, int]
+    touch_count: int
+    last_touch: TouchEvent | None
+
+
+@dataclass(frozen=True)
+class RuntimeAction:
+    kind: str
+    touch: TouchEvent
+
+
+@dataclass
+class RuntimeState:
+    frames: list[RuntimeFrame] = field(default_factory=list)
+    touch_events: list[TouchEvent] = field(default_factory=list)
+    actions: list[RuntimeAction] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+    restarts: int = 0
+    running: bool = False

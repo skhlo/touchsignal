@@ -1,0 +1,18 @@
+[Unit]
+Description=TouchSignal Touch Bar owner
+Documentation=https://github.com/skhlo/touchsignal
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecCondition=@TOUCHSIGNAL_OWNER@ preflight
+ExecStart=@TOUCHSIGNAL_OWNER@ run
+ExecStopPost=@TOUCHSIGNAL_OWNER@ restore
+Restart=on-failure
+RestartSec=1
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=graphical-session.target

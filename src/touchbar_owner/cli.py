@@ -12,6 +12,7 @@ from .discovery import competing_renderer_names, find_touchbar_usb, list_drm_car
 from .live import LiveHost
 from .owner import OwnerError, TouchBarOwner
 from .restore import restore_firmware_row
+from .runtime import PreflightError, SupervisedRuntime, SupervisedRuntimeError
 from .types import OBSERVED_BASELINE, firmware_row_restored
 
 
@@ -158,11 +159,70 @@ def cmd_idle(args: argparse.Namespace) -> int:
     return rc
 
 
+def cmd_preflight(_args: argparse.Namespace) -> int:
+    runtime = SupervisedRuntime(LiveHost())
+    try:
+        runtime.preflight()
+    except PreflightError as exc:
+        print(f"preflight failed: {exc}", file=sys.stderr)
+        return 1
+    print("preflight ok")
+    return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    host = LiveHost()
+    runtime = SupervisedRuntime(host, restart_delay=args.restart_delay)
+    stop = {"value": False}
+
+    def handle_stop(_signum: int, _frame: object) -> None:
+        stop["value"] = True
+
+    signal.signal(signal.SIGINT, handle_stop)
+    signal.signal(signal.SIGTERM, handle_stop)
+    restarts = 0
+    rc = 0
+    try:
+        while not stop["value"]:
+            try:
+                runtime.run_supervised(cycles=1, max_restarts=0)
+            except PreflightError as exc:
+                if runtime.state.running:
+                    rc = 1
+                print(f"runtime preflight failed: {exc}", file=sys.stderr)
+                break
+            except SupervisedRuntimeError as exc:
+                print(f"runtime failure: {exc}", file=sys.stderr)
+                restarts += 1
+                if restarts > args.max_restarts:
+                    rc = 1
+                    break
+                time.sleep(args.restart_delay)
+                continue
+            restarts = 0
+            if not runtime.state.running and not host.graphical_session_ready():
+                break
+            time.sleep(args.poll_interval)
+    finally:
+        try:
+            runtime.stop()
+        except SupervisedRuntimeError as exc:
+            print(f"runtime stop failed: {exc}", file=sys.stderr)
+            rc = 1
+    return rc
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Exclusive Touch Bar owner spike")
+    parser = argparse.ArgumentParser(description="TouchSignal Touch Bar owner")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="record the current firmware-row baseline").set_defaults(func=cmd_status)
     sub.add_parser("restore", help="restore USB config 1, special-key mode, Fn, autodim, and brightness").set_defaults(func=cmd_restore)
+    sub.add_parser("preflight", help="verify that the runtime may claim the Touch Bar").set_defaults(func=cmd_preflight)
+    run = sub.add_parser("run", help="run the supervised Touch Bar owner")
+    run.add_argument("--poll-interval", type=float, default=0.05)
+    run.add_argument("--restart-delay", type=float, default=1.0)
+    run.add_argument("--max-restarts", type=int, default=3)
+    run.set_defaults(func=cmd_run)
     claim = sub.add_parser("claim", help="claim appletbdrm, draw the 2008x60 test surface, then restore")
     claim.add_argument("--seconds", type=float, default=20.0)
     claim.add_argument("--require-touch", action="store_true")
