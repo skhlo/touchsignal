@@ -1,0 +1,1605 @@
+<!doctype html>
+<!--
+  THROWAWAY PROTOTYPE
+  One agreed TouchSignal layout: compact agents left, reserved center,
+  read-only thermals and an explicit power-profile chooser right.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TouchSignal layout prototype</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        font-optical-sizing: auto;
+        --page: #0c1017;
+        --page-elevated: #131a24;
+        --page-panel: rgb(24 32 44 / 82%);
+        --page-border: rgb(255 255 255 / 10%);
+        --page-text: #f0f4fa;
+        --page-muted: #94a0b2;
+        --page-accent: #88c0d0;
+        --shadow: 0 24px 80px rgb(0 0 0 / 36%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        color: var(--page-text);
+        background:
+          radial-gradient(circle at 25% 0%, rgb(61 82 110 / 28%), transparent 42rem),
+          linear-gradient(145deg, #0b0f15, var(--page));
+      }
+
+      button,
+      select,
+      input {
+        font: inherit;
+      }
+
+      button,
+      select {
+        color: inherit;
+      }
+
+      button {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .page-shell {
+        width: min(92rem, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 3.5rem 0 5rem;
+      }
+
+      .page-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 2rem;
+        margin-bottom: 2rem;
+      }
+
+      .eyebrow {
+        margin: 0 0 0.65rem;
+        color: var(--page-accent);
+        font-size: 0.72rem;
+        font-weight: 760;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 16ch;
+        margin: 0;
+        font-size: clamp(2rem, 4.5vw, 4.6rem);
+        font-weight: 690;
+        letter-spacing: -0.045em;
+        line-height: 0.98;
+      }
+
+      .lede {
+        max-width: 43rem;
+        margin: 1rem 0 0;
+        color: var(--page-muted);
+        font-size: clamp(0.95rem, 1.2vw, 1.08rem);
+        line-height: 1.65;
+      }
+
+      .prototype-mark {
+        align-self: start;
+        padding: 0.55rem 0.8rem;
+        border: 1px solid color-mix(in srgb, var(--page-accent) 35%, transparent);
+        border-radius: 999px;
+        color: var(--page-accent);
+        background: color-mix(in srgb, var(--page-accent) 8%, transparent);
+        font-size: 0.72rem;
+        font-weight: 720;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .surface {
+        border: 1px solid var(--page-border);
+        border-radius: 1.5rem;
+        background: var(--page-panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(24px) saturate(140%);
+      }
+
+      .device-section {
+        overflow: hidden;
+      }
+
+      .surface-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.1rem;
+        border-bottom: 1px solid var(--page-border);
+      }
+
+      .surface-title {
+        display: flex;
+        align-items: baseline;
+        gap: 0.65rem;
+      }
+
+      .surface-title h2 {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 670;
+        letter-spacing: -0.01em;
+      }
+
+      .surface-title span {
+        color: var(--page-muted);
+        font-size: 0.75rem;
+      }
+
+      .scale-control {
+        display: inline-flex;
+        padding: 0.2rem;
+        border: 1px solid var(--page-border);
+        border-radius: 0.75rem;
+        background: rgb(0 0 0 / 18%);
+      }
+
+      .scale-control button {
+        min-height: 2rem;
+        padding: 0 0.75rem;
+        border: 0;
+        border-radius: 0.55rem;
+        color: var(--page-muted);
+        background: transparent;
+        font-size: 0.76rem;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .scale-control button[aria-pressed="true"] {
+        color: var(--page-text);
+        background: rgb(255 255 255 / 10%);
+      }
+
+      .scale-control button:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--page-accent);
+        outline-offset: 2px;
+      }
+
+      .device-bed {
+        min-height: 9rem;
+        padding: 2.8rem 1.2rem;
+        overflow-x: auto;
+        background:
+          linear-gradient(rgb(255 255 255 / 2%), transparent),
+          #050608;
+        scrollbar-color: rgb(255 255 255 / 18%) transparent;
+      }
+
+      .touchbar-stage {
+        position: relative;
+        margin: 0 auto;
+      }
+
+      .touchbar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 2170px;
+        height: 60px;
+        overflow: hidden;
+        border: 1px solid color-mix(in srgb, var(--bar-fg) 10%, transparent);
+        border-radius: 14px;
+        color: var(--bar-fg);
+        background: var(--bar-bg);
+        box-shadow:
+          0 0 0 6px #000,
+          0 10px 32px rgb(0 0 0 / 75%);
+        transform-origin: top left;
+        user-select: none;
+        touch-action: none;
+      }
+
+      .touchbar button {
+        min-width: 0;
+        border: 0;
+      }
+
+      .touchbar button:focus-visible {
+        outline: 3px solid var(--bar-accent);
+        outline-offset: -4px;
+      }
+
+      .workflow-layout {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: stretch;
+        width: 100%;
+        height: 100%;
+        gap: 12px;
+        padding: 6px 8px;
+      }
+
+      .agent-dock,
+      .hardware-cluster,
+      .power-chooser {
+        display: flex;
+        align-items: stretch;
+        gap: 6px;
+      }
+
+      .reserved-center {
+        min-width: 0;
+      }
+
+      .agent-target {
+        position: relative;
+        display: flex;
+        width: 112px;
+        height: 46px;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        border-radius: 9px;
+        color: var(--bar-fg);
+        background: var(--tile-bg);
+        cursor: pointer;
+        transform: scale(1);
+        transition:
+          transform 80ms ease-out,
+          background-color 120ms ease-out,
+          opacity 120ms ease-out,
+          box-shadow 120ms ease-out;
+      }
+
+      .agent-target.is-placeholder {
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .agent-target.is-focused {
+        background: color-mix(in srgb, var(--bar-accent) 20%, var(--tile-bg));
+        box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bar-accent) 62%, transparent);
+      }
+
+      .agent-target.is-pressed,
+      .profile-trigger.is-pressed,
+      .profile-choice.is-pressed,
+      .system-key.is-pressed {
+        background: var(--bar-pressed);
+        transform: scale(0.97);
+      }
+
+      .agent-target.is-cancelled,
+      .profile-trigger.is-cancelled,
+      .profile-choice.is-cancelled,
+      .system-key.is-cancelled {
+        opacity: 0.5;
+        transform: scale(0.97);
+      }
+
+      .agent-mark {
+        display: grid;
+        width: 27px;
+        height: 27px;
+        flex: none;
+        place-items: center;
+        font-size: 24px;
+        font-weight: 720;
+        letter-spacing: -0.035em;
+        line-height: 1;
+      }
+
+      .agent-mark.codex {
+        border: 2px solid currentColor;
+        border-radius: 7px;
+        color: var(--bar-accent);
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+
+      .workspace-number {
+        position: absolute;
+        top: 4px;
+        left: 5px;
+        color: var(--bar-muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        font-weight: 760;
+      }
+
+      .agent-pair {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+      }
+
+      .agent-state {
+        display: grid;
+        width: 27px;
+        height: 27px;
+        flex: none;
+        place-items: center;
+        border-radius: 7px;
+        color: var(--bar-fg);
+        background: color-mix(in srgb, var(--state-color, var(--bar-muted)) 22%, var(--tile-bg));
+        box-shadow: inset 0 0 0 2px var(--state-color, var(--bar-muted));
+        font-size: 24px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .agent-pending {
+        width: 15px;
+        height: 15px;
+        border: 2px solid color-mix(in srgb, var(--bar-accent) 30%, transparent);
+        border-top-color: var(--bar-accent);
+        border-radius: 50%;
+        animation: pending-spin 680ms linear infinite;
+      }
+
+      .agent-target .agent-pending {
+        width: 27px;
+        height: 27px;
+        flex: none;
+        border-width: 3px;
+      }
+
+      @keyframes pending-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .hardware-cluster {
+        justify-self: end;
+      }
+
+      .metric,
+      .profile-trigger,
+      .profile-choice {
+        height: 46px;
+        border-radius: 9px;
+        background: var(--tile-bg);
+      }
+
+      .metric {
+        display: flex;
+        min-width: 148px;
+        padding: 0 15px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        transition:
+          color 140ms ease-out,
+          opacity 140ms ease-out,
+          background-color 140ms ease-out;
+      }
+
+      .hardware-label {
+        color: var(--bar-muted);
+        font-size: 13px;
+        font-weight: 760;
+        letter-spacing: 0.06em;
+      }
+
+      .hardware-value {
+        color: var(--bar-fg);
+        font-size: 20px;
+        font-variant-numeric: tabular-nums;
+        font-weight: 660;
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+      }
+
+      .metric[data-band="warm"] {
+        box-shadow: inset 0 -3px 0 var(--bar-yellow);
+      }
+
+      .metric[data-band="hot"] {
+        box-shadow: inset 0 -3px 0 var(--bar-red);
+      }
+
+      .metric.is-off {
+        opacity: 0.34;
+      }
+
+      .profile-trigger {
+        position: relative;
+        display: flex;
+        min-width: 142px;
+        padding: 0 15px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--bar-fg);
+        background: color-mix(in srgb, var(--bar-accent) 13%, var(--tile-bg));
+        cursor: pointer;
+        transition:
+          transform 80ms ease-out,
+          background-color 120ms ease-out,
+          opacity 120ms ease-out;
+      }
+
+      .profile-trigger .hardware-value {
+        color: var(--bar-accent);
+      }
+
+      .profile-trigger .agent-pending {
+        position: static;
+      }
+
+      .power-chooser {
+        justify-self: end;
+        transform-origin: right center;
+        animation: chooser-enter 120ms ease-out;
+      }
+
+      @keyframes chooser-enter {
+        from {
+          opacity: 0;
+          transform: scale(0.98);
+        }
+      }
+
+      .profile-choice {
+        min-width: 148px;
+        padding: 0 17px;
+        color: var(--bar-muted);
+        cursor: pointer;
+        font-size: 17px;
+        font-weight: 640;
+        transition:
+          transform 80ms ease-out,
+          background-color 120ms ease-out,
+          color 120ms ease-out,
+          opacity 120ms ease-out;
+      }
+
+      .profile-choice.is-current {
+        color: var(--bar-fg);
+        background: color-mix(in srgb, var(--bar-accent) 18%, var(--tile-bg));
+        box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bar-accent) 54%, transparent);
+      }
+
+      .profile-choice.cancel {
+        min-width: 96px;
+      }
+
+      .profile-choice:disabled {
+        cursor: wait;
+        opacity: 0.48;
+      }
+
+      .system-layer {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        align-items: stretch;
+        justify-content: space-between;
+        padding: 6px 10px;
+      }
+
+      .system-cluster {
+        display: flex;
+        gap: 6px;
+      }
+
+      .system-key {
+        display: grid;
+        min-width: 92px;
+        height: 46px;
+        padding: 0 20px;
+        place-items: center;
+        border-radius: 9px;
+        color: var(--bar-fg);
+        background: var(--tile-bg);
+        cursor: pointer;
+        font-size: 20px;
+        font-weight: 650;
+        transition:
+          transform 80ms ease-out,
+          background-color 100ms ease-out,
+          opacity 100ms ease-out;
+      }
+
+      .system-key.wide {
+        min-width: 180px;
+      }
+
+      .system-message {
+        display: flex;
+        min-width: 320px;
+        padding: 0 22px;
+        align-items: center;
+        gap: 14px;
+        color: var(--bar-muted);
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .system-dot {
+        width: 12px;
+        height: 12px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--state-color, var(--bar-muted));
+      }
+
+      .device-footer {
+        display: flex;
+        min-height: 3.2rem;
+        padding: 0.8rem 1.1rem;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        border-top: 1px solid var(--page-border);
+        color: var(--page-muted);
+        font-size: 0.78rem;
+      }
+
+      .device-footer strong {
+        color: var(--page-text);
+        font-weight: 640;
+      }
+
+      .event-message {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .workspace-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      .panel {
+        padding: 1.2rem;
+      }
+
+      .panel h2 {
+        margin: 0 0 0.35rem;
+        font-size: 1.05rem;
+        font-weight: 680;
+        letter-spacing: -0.018em;
+      }
+
+      .panel-copy {
+        margin: 0 0 1.15rem;
+        color: var(--page-muted);
+        font-size: 0.84rem;
+        line-height: 1.55;
+      }
+
+      .control-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.9rem;
+      }
+
+      .field {
+        display: grid;
+        gap: 0.42rem;
+      }
+
+      .field label,
+      .range-header {
+        color: var(--page-muted);
+        font-size: 0.7rem;
+        font-weight: 690;
+        letter-spacing: 0.075em;
+        text-transform: uppercase;
+      }
+
+      select {
+        width: 100%;
+        min-height: 2.6rem;
+        padding: 0 2.2rem 0 0.75rem;
+        border: 1px solid var(--page-border);
+        border-radius: 0.7rem;
+        color: var(--page-text);
+        background: #101722;
+      }
+
+      .range-field {
+        display: grid;
+        gap: 0.55rem;
+        padding: 0.75rem;
+        border: 1px solid var(--page-border);
+        border-radius: 0.8rem;
+        background: rgb(0 0 0 / 12%);
+      }
+
+      .range-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
+
+      .range-header output {
+        color: var(--page-text);
+        font-size: 0.82rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--page-accent);
+      }
+
+      input[type="range"]:disabled {
+        opacity: 0.35;
+      }
+
+      .toggle-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.7rem;
+        margin-top: 1rem;
+      }
+
+      .toggle {
+        display: flex;
+        min-height: 2.65rem;
+        padding: 0.6rem 0.75rem;
+        align-items: center;
+        gap: 0.65rem;
+        border: 1px solid var(--page-border);
+        border-radius: 0.7rem;
+        color: var(--page-muted);
+        background: rgb(0 0 0 / 14%);
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+
+      .toggle input {
+        width: 1rem;
+        height: 1rem;
+        margin: 0;
+        accent-color: var(--page-accent);
+      }
+
+      .agent-controls {
+        display: grid;
+        gap: 0.55rem;
+        margin-top: 1rem;
+      }
+
+      .agent-control {
+        display: grid;
+        grid-template-columns: minmax(7rem, 1fr) minmax(9rem, 0.7fr);
+        align-items: center;
+        gap: 0.8rem;
+      }
+
+      .agent-control span {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--page-text);
+        font-size: 0.84rem;
+        font-weight: 620;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .decision-title {
+        margin: 0.9rem 0 0.35rem;
+        color: var(--page-accent);
+        font-size: 0.76rem;
+        font-weight: 720;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .decision-summary {
+        margin: 0;
+        font-size: 1.35rem;
+        font-weight: 660;
+        letter-spacing: -0.025em;
+        line-height: 1.15;
+      }
+
+      .decisions {
+        display: grid;
+        gap: 0.65rem;
+        margin: 1rem 0 1.2rem;
+        padding: 0;
+        list-style: none;
+      }
+
+      .decisions li {
+        display: grid;
+        grid-template-columns: 1.1rem 1fr;
+        gap: 0.55rem;
+        color: var(--page-muted);
+        font-size: 0.84rem;
+        line-height: 1.5;
+      }
+
+      .decisions li::before {
+        color: var(--page-accent);
+        content: "•";
+        font-weight: 900;
+      }
+
+      .question {
+        padding: 0.85rem 0.9rem;
+        border: 1px solid color-mix(in srgb, var(--page-accent) 25%, transparent);
+        border-radius: 0.8rem;
+        color: color-mix(in srgb, var(--page-text) 92%, var(--page-accent));
+        background: color-mix(in srgb, var(--page-accent) 7%, transparent);
+        font-size: 0.82rem;
+        line-height: 1.5;
+      }
+
+      .snapshot {
+        max-height: 15rem;
+        margin: 1rem 0 0;
+        padding: 0.9rem;
+        overflow: auto;
+        border: 1px solid var(--page-border);
+        border-radius: 0.8rem;
+        color: #bdc7d6;
+        background: rgb(0 0 0 / 24%);
+        font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+        font-size: 0.72rem;
+        line-height: 1.55;
+        white-space: pre-wrap;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 880px) {
+        .page-header,
+        .workspace-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .prototype-mark {
+          justify-self: start;
+        }
+
+        .toggle-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .page-shell {
+          width: min(100% - 1rem, 92rem);
+          padding-top: 1.5rem;
+        }
+
+        .surface-header,
+        .device-footer {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .control-grid,
+        .toggle-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .agent-control {
+          grid-template-columns: 1fr;
+          gap: 0.35rem;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+
+        .agent-pending {
+          border-color: var(--bar-accent);
+          animation: none;
+        }
+      }
+
+      @media (prefers-contrast: more) {
+        .surface {
+          border-color: currentColor;
+          background: var(--page);
+          backdrop-filter: none;
+        }
+
+        .touchbar,
+        .agent-target,
+        .metric,
+        .profile-trigger,
+        .profile-choice,
+        .system-key {
+          border: 2px solid var(--bar-fg);
+        }
+      }
+
+      @media (prefers-reduced-transparency: reduce) {
+        .surface {
+          background: var(--page-elevated);
+          backdrop-filter: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">TouchSignal UX study</p>
+          <h1>Agents left. Hardware right. Space to grow.</h1>
+          <p class="lede">
+            Test the agreed compact layout at 2170 × 60 pixels. Agent visuals stay
+            small inside generous touch targets, the center remains reserved, and
+            the thermal instruments never pretend to be controls.
+          </p>
+        </div>
+        <span class="prototype-mark">One working version</span>
+      </header>
+
+      <section class="surface device-section" aria-labelledby="preview-title">
+        <div class="surface-header">
+          <div class="surface-title">
+            <h2 id="preview-title">Hardware preview</h2>
+            <span>2170 × 60 px</span>
+          </div>
+          <div class="scale-control" aria-label="Preview scale">
+            <button type="button" data-scale="fit" aria-pressed="true">Fit</button>
+            <button type="button" data-scale="native" aria-pressed="false">Native</button>
+          </div>
+        </div>
+        <div class="device-bed" id="device-bed">
+          <div class="touchbar-stage" id="touchbar-stage">
+            <div class="touchbar" id="touchbar" aria-label="TouchSignal Touch Bar preview"></div>
+          </div>
+        </div>
+        <div class="device-footer">
+          <span><strong>Try:</strong> agent focus, drag-away cancellation, and the power chooser.</span>
+          <span class="event-message" id="event-message">Ready for input.</span>
+        </div>
+      </section>
+
+      <div class="workspace-grid">
+        <section class="surface panel" aria-labelledby="controls-title">
+          <h2 id="controls-title">Source simulator</h2>
+          <p class="panel-copy">
+            These controls stand in for Omarchy, Herdr, hardware sensors, power
+            profiles, logind, and the renderer supervisor. They perform no real action.
+          </p>
+
+          <div class="control-grid">
+            <div class="field">
+              <label for="theme">Omarchy palette</label>
+              <select id="theme">
+                <option value="nord">Nord</option>
+                <option value="tokyo">Tokyo Night</option>
+                <option value="everforest">Everforest</option>
+                <option value="light">Light</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="workspace-count">Herdr workspaces</label>
+              <select id="workspace-count">
+                <option value="1">1 workspace</option>
+                <option value="2">2 workspaces</option>
+                <option value="3">3 workspaces</option>
+                <option value="4" selected>4 workspaces</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="focused-target">Verified focus</label>
+              <select id="focused-target"></select>
+            </div>
+            <div class="field">
+              <label for="codex-state">Codex app</label>
+              <select id="codex-state">
+                <option value="closed">Closed</option>
+                <option value="open" selected>Open</option>
+                <option value="focused">Focused</option>
+                <option value="unavailable">Unavailable</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="power-profile">Verified power profile</label>
+              <select id="power-profile">
+                <option value="power-saver">Power saver</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="performance">Performance</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="control-grid" style="margin-top: 0.9rem">
+            <div class="range-field">
+              <div class="range-header">
+                <label for="cpu-temp">CPU package temperature</label>
+                <output id="cpu-temp-output" for="cpu-temp">56°C</output>
+              </div>
+              <input id="cpu-temp" type="range" min="30" max="105" value="56" />
+            </div>
+            <div class="range-field">
+              <div class="range-header">
+                <label for="gpu-temp">Discrete GPU temperature</label>
+                <output id="gpu-temp-output" for="gpu-temp">--°C</output>
+              </div>
+              <input id="gpu-temp" type="range" min="30" max="105" value="62" disabled />
+            </div>
+          </div>
+
+          <div class="toggle-grid">
+            <label class="toggle">
+              <input id="dgpu-on" type="checkbox" checked />
+              dGPU runtime active
+            </label>
+            <label class="toggle">
+              <input id="fn-layer" type="checkbox" />
+              Hold Fn layer
+            </label>
+            <label class="toggle">
+              <input id="locked" type="checkbox" />
+              Session locked
+            </label>
+            <label class="toggle">
+              <input id="failed" type="checkbox" />
+              Renderer failed
+            </label>
+          </div>
+
+          <div class="agent-controls" id="agent-controls"></div>
+        </section>
+
+        <aside class="surface panel" aria-labelledby="review-title">
+          <h2 id="review-title">Working decision</h2>
+          <p class="decision-title">Compact instrument layout</p>
+          <p class="decision-summary">Stable agents, truthful thermals, and a reserved center.</p>
+          <ul class="decisions">
+            <li>Letters stand in for final agent logos. Each logo and status sign uses the same 27-pixel visual box.</li>
+            <li>One persistent Codex slot plus four Herdr slots keeps five-button geometry stable.</li>
+            <li>The GPU temperature tile dims and shows no value while the dGPU is suspended.</li>
+            <li>The power profile uses explicit choices and waits for source verification.</li>
+            <li>The center is intentionally empty and belongs to future context.</li>
+          </ul>
+          <div class="question">
+            Does the equal logo and status weight read clearly at Touch Bar scale?
+          </div>
+          <pre class="snapshot" id="snapshot" aria-label="Current prototype state"></pre>
+        </aside>
+      </div>
+    </main>
+
+    <div class="visually-hidden" id="action-status" aria-live="polite"></div>
+
+    <script>
+      const themes = {
+        nord: {
+          background: "#2e3440",
+          foreground: "#eceff4",
+          muted: "#a9b3c5",
+          accent: "#88c0d0",
+          blue: "#81a1c1",
+          yellow: "#ebcb8b",
+          green: "#a3be8c",
+          red: "#bf616a",
+          lighter: "#434c5e",
+          tile: "#353c49",
+        },
+        tokyo: {
+          background: "#1a1b26",
+          foreground: "#c0caf5",
+          muted: "#9aa5ce",
+          accent: "#7aa2f7",
+          blue: "#7dcfff",
+          yellow: "#e0af68",
+          green: "#9ece6a",
+          red: "#f7768e",
+          lighter: "#292e42",
+          tile: "#202333",
+        },
+        everforest: {
+          background: "#2d353b",
+          foreground: "#d3c6aa",
+          muted: "#a0aca3",
+          accent: "#83c092",
+          blue: "#7fbbb3",
+          yellow: "#dbbc7f",
+          green: "#a7c080",
+          red: "#e67e80",
+          lighter: "#475258",
+          tile: "#343f44",
+        },
+        light: {
+          background: "#eef0f3",
+          foreground: "#1f2630",
+          muted: "#566273",
+          accent: "#2f6f8f",
+          blue: "#386f9f",
+          yellow: "#8a6417",
+          green: "#39714d",
+          red: "#a13b46",
+          lighter: "#d5dae1",
+          tile: "#e1e5ea",
+        },
+      };
+
+      const workspaces = [
+        { number: 1, agent: "Codex", mark: "C", status: "working" },
+        { number: 2, agent: "Grok", mark: "G", status: "blocked" },
+        { number: 3, agent: "Claude", mark: "Cl", status: "idle" },
+        { number: 4, agent: "Pi", mark: "π", status: "done" },
+      ];
+
+      const statusPresentation = {
+        idle: { label: "Ready", symbol: "·", color: "var(--bar-muted)" },
+        working: { label: "Working", symbol: "→", color: "var(--bar-blue)" },
+        blocked: { label: "Needs input", symbol: "!", color: "var(--bar-yellow)" },
+        done: { label: "Done", symbol: "✓", color: "var(--bar-green)" },
+        unknown: { label: "Unknown", symbol: "?", color: "var(--bar-muted)" },
+      };
+
+      const codexPresentation = {
+        closed: { label: "Closed", symbol: "·", color: "var(--bar-muted)" },
+        open: { label: "Open", symbol: "→", color: "var(--bar-blue)" },
+        focused: { label: "Focused", symbol: "✓", color: "var(--bar-accent)" },
+        unavailable: { label: "Unavailable", symbol: "!", color: "var(--bar-red)" },
+      };
+
+      const profilePresentation = {
+        "power-saver": { short: "SAVE", label: "Power saver" },
+        balanced: { short: "BAL", label: "Balanced" },
+        performance: { short: "PERF", label: "Performance" },
+      };
+
+      const state = {
+        scale: "fit",
+        theme: "nord",
+        workspaceCount: 4,
+        focusedTarget: "workspace-1",
+        codexState: "open",
+        cpuTemp: 56,
+        dgpuOn: true,
+        gpuTemp: 58,
+        powerProfile: "balanced",
+        powerChooserOpen: false,
+        pendingProfile: null,
+        fnLayer: false,
+        locked: false,
+        failed: false,
+        pendingAgents: new Set(),
+      };
+
+      const touchbar = document.querySelector("#touchbar");
+      const stage = document.querySelector("#touchbar-stage");
+      const deviceBed = document.querySelector("#device-bed");
+      const eventMessage = document.querySelector("#event-message");
+      const actionStatus = document.querySelector("#action-status");
+      const snapshot = document.querySelector("#snapshot");
+      let activePress = null;
+      let lastPointerRelease = 0;
+
+      function visibleWorkspaces() {
+        return workspaces.slice(0, Math.min(state.workspaceCount, 4));
+      }
+
+      function agentTarget({ key, label, mark, number, status, codex = false, placeholder = false }) {
+        if (placeholder) {
+          return '<span class="agent-target is-placeholder" aria-hidden="true"></span>';
+        }
+        const presentation = codex ? codexPresentation[status] : statusPresentation[status];
+        const pending = state.pendingAgents.has(key);
+        const focused = state.focusedTarget === key;
+        const classes = ["agent-target", focused ? "is-focused" : ""].filter(Boolean).join(" ");
+        const numberMarkup = number
+          ? `<span class="workspace-number" aria-hidden="true">${number}</span>`
+          : "";
+        const markClass = codex ? "agent-mark codex" : "agent-mark";
+        const stateMarkup = pending
+          ? '<span class="agent-pending" aria-hidden="true"></span>'
+          : `<span class="agent-state" style="--state-color: ${presentation.color}" aria-hidden="true">${presentation.symbol}</span>`;
+        const stateLabel = pending ? "Focusing" : presentation.label;
+
+        return `
+          <button
+            type="button"
+            class="${classes}"
+            data-action="${key}"
+            aria-label="${label}, ${stateLabel}${focused ? ", focused" : ""}"
+          >
+            ${numberMarkup}
+            <span class="agent-pair" aria-hidden="true">
+              <span class="${markClass}">${mark}</span>
+              ${stateMarkup}
+            </span>
+          </button>`;
+      }
+
+      function renderAgentDock() {
+        const codex = agentTarget({
+          key: "codex",
+          label: "Codex app",
+          mark: "C",
+          status: state.codexState,
+          codex: true,
+        });
+        const active = visibleWorkspaces();
+        const slots = [0, 1, 2, 3].map((index) => {
+          const workspace = active[index];
+          return workspace
+            ? agentTarget({
+                key: `workspace-${workspace.number}`,
+                label: `Workspace ${workspace.number}, ${workspace.agent}`,
+                mark: workspace.mark,
+                number: workspace.number,
+                status: workspace.status,
+              })
+            : agentTarget({ placeholder: true });
+        });
+        return `<div class="agent-dock" aria-label="Agent destinations">${codex}${slots.join("")}</div>`;
+      }
+
+      function temperatureBand(value, warm, hot) {
+        if (value >= hot) return "hot";
+        if (value >= warm) return "warm";
+        return "normal";
+      }
+
+      function metric(label, value, options = {}) {
+        const classes = ["metric", options.className || "", options.off ? "is-off" : ""]
+          .filter(Boolean)
+          .join(" ");
+        return `
+          <div class="${classes}" data-band="${options.band || "normal"}" aria-label="${options.ariaLabel || `${label} ${value}`}">
+            <span class="hardware-label">${label}</span>
+            <span class="hardware-value">${value}</span>
+          </div>`;
+      }
+
+      function renderHardwareCluster() {
+        if (state.powerChooserOpen) return renderPowerChooser();
+        const cpu = metric("CPU", `${state.cpuTemp}°C`, {
+          band: temperatureBand(state.cpuTemp, 80, 92),
+          ariaLabel: `CPU package temperature ${state.cpuTemp} degrees Celsius`,
+        });
+        const gpuValue = state.dgpuOn ? `${state.gpuTemp}°C` : "--°C";
+        const gpu = metric("GPU", gpuValue, {
+          off: !state.dgpuOn,
+          band: state.dgpuOn ? temperatureBand(state.gpuTemp, 76, 90) : "normal",
+          ariaLabel: state.dgpuOn
+            ? `Discrete GPU temperature ${state.gpuTemp} degrees Celsius`
+            : "Discrete GPU temperature not read while runtime suspended",
+        });
+        const profile = profilePresentation[state.powerProfile];
+        const pending = state.pendingProfile
+          ? '<span class="agent-pending" aria-hidden="true"></span>'
+          : `<span class="hardware-value">${profile.short} ▾</span>`;
+        const button = `
+          <button
+            type="button"
+            class="profile-trigger"
+            data-action="open-power"
+            aria-label="Power profile, ${profile.label}. Open choices"
+          >
+            <span class="hardware-label">POWER</span>
+            ${pending}
+          </button>`;
+        return `<div class="hardware-cluster" aria-label="Hardware status">${cpu}${gpu}${button}</div>`;
+      }
+
+      function profileChoice(profileKey) {
+        const profile = profilePresentation[profileKey];
+        const current = state.powerProfile === profileKey;
+        const pending = state.pendingProfile === profileKey;
+        return `
+          <button
+            type="button"
+            class="profile-choice ${current ? "is-current" : ""}"
+            data-action="profile-${profileKey}"
+            ${state.pendingProfile ? "disabled" : ""}
+            aria-label="Use ${profile.label} power profile${current ? ", current" : ""}"
+          >${pending ? "Applying" : `${profile.label}${current ? " ✓" : ""}`}</button>`;
+      }
+
+      function renderPowerChooser() {
+        return `
+          <div class="power-chooser" aria-label="Power profile choices">
+            ${profileChoice("power-saver")}
+            ${profileChoice("balanced")}
+            ${profileChoice("performance")}
+            <button type="button" class="profile-choice cancel" data-action="cancel-power" ${state.pendingProfile ? "disabled" : ""}>Cancel</button>
+          </div>`;
+      }
+
+      function renderWorkflowLayer() {
+        touchbar.innerHTML = `
+          <div class="workflow-layout">
+            ${renderAgentDock()}
+            <div class="reserved-center" aria-hidden="true"></div>
+            ${renderHardwareCluster()}
+          </div>`;
+      }
+
+      function systemKey(action, label, className = "") {
+        return `<button type="button" class="system-key ${className}" data-action="${action}" aria-label="${label}">${label}</button>`;
+      }
+
+      function renderSystemLayer(mode) {
+        const message = mode === "failed"
+          ? '<div class="system-message"><span class="system-dot" style="--state-color: var(--bar-red)"></span><span>Firmware row restored</span></div>'
+          : mode === "locked"
+            ? '<div class="system-message"><span class="system-dot"></span><span>Session locked</span></div>'
+            : "";
+
+        touchbar.innerHTML = `
+          <div class="system-layer">
+            <div class="system-cluster">${message}</div>
+            <div class="system-cluster">
+              ${systemKey("brightness-down", "☀−")}
+              ${systemKey("brightness-up", "☀+")}
+              ${systemKey("previous", "◀")}
+              ${systemKey("play-pause", "▶︎ ∥", "wide")}
+              ${systemKey("next", "▶")}
+              ${systemKey("volume-down", "◖−")}
+              ${systemKey("volume-up", "◖+")}
+            </div>
+          </div>`;
+      }
+
+      function applyTheme() {
+        const theme = themes[state.theme];
+        const properties = {
+          "--bar-bg": theme.background,
+          "--bar-fg": theme.foreground,
+          "--bar-muted": theme.muted,
+          "--bar-accent": theme.accent,
+          "--bar-blue": theme.blue,
+          "--bar-yellow": theme.yellow,
+          "--bar-green": theme.green,
+          "--bar-red": theme.red,
+          "--bar-pressed": theme.lighter,
+          "--tile-bg": theme.tile,
+        };
+        for (const [property, value] of Object.entries(properties)) {
+          touchbar.style.setProperty(property, value);
+        }
+      }
+
+      function renderTouchbar() {
+        applyTheme();
+        if (state.failed) renderSystemLayer("failed");
+        else if (state.locked) renderSystemLayer("locked");
+        else if (state.fnLayer) renderSystemLayer("fn");
+        else renderWorkflowLayer();
+      }
+
+      function renderAgentControls() {
+        document.querySelector("#agent-controls").innerHTML = visibleWorkspaces().map((workspace) => `
+          <label class="agent-control">
+            <span>Workspace ${workspace.number} · ${workspace.agent}</span>
+            <select data-workspace-status="${workspace.number}" aria-label="Workspace ${workspace.number} status">
+              ${["idle", "working", "blocked", "done", "unknown"].map((status) =>
+                `<option value="${status}" ${workspace.status === status ? "selected" : ""}>${statusPresentation[status].label}</option>`,
+              ).join("")}
+            </select>
+          </label>`).join("");
+      }
+
+      function renderFocusOptions() {
+        const focusSelect = document.querySelector("#focused-target");
+        const options = [
+          { value: "codex", label: "Codex app" },
+          ...visibleWorkspaces().map((workspace) => ({
+            value: `workspace-${workspace.number}`,
+            label: `Workspace ${workspace.number}`,
+          })),
+        ];
+        if (!options.some((option) => option.value === state.focusedTarget)) {
+          state.focusedTarget = "codex";
+          state.codexState = "focused";
+          document.querySelector("#codex-state").value = state.codexState;
+        }
+        focusSelect.innerHTML = options.map((option) =>
+          `<option value="${option.value}" ${option.value === state.focusedTarget ? "selected" : ""}>${option.label}</option>`,
+        ).join("");
+      }
+
+      function renderSensorControls() {
+        document.querySelector("#cpu-temp-output").textContent = `${state.cpuTemp}°C`;
+        document.querySelector("#gpu-temp-output").textContent = state.dgpuOn ? `${state.gpuTemp}°C` : "--°C";
+        document.querySelector("#gpu-temp").disabled = !state.dgpuOn;
+      }
+
+      function renderSnapshot() {
+        snapshot.textContent = JSON.stringify({
+          layer: state.failed
+            ? "firmware-fallback"
+            : state.locked
+              ? "locked-media"
+              : state.fnLayer
+                ? "fn-media"
+                : "workflow",
+          palette: state.theme,
+          focused: state.focusedTarget,
+          agents: {
+            codex: state.codexState,
+            herdr: visibleWorkspaces(),
+            pending: [...state.pendingAgents],
+          },
+          hardware: {
+            cpuTempC: state.cpuTemp,
+            discreteGpuRuntime: state.dgpuOn ? "active" : "suspended",
+            gpuTempC: state.dgpuOn ? state.gpuTemp : null,
+            powerProfile: state.powerProfile,
+            pendingProfile: state.pendingProfile,
+          },
+          center: "reserved",
+        }, null, 2);
+      }
+
+      function render({ controls = false } = {}) {
+        renderFocusOptions();
+        renderTouchbar();
+        renderSensorControls();
+        renderSnapshot();
+        if (controls) renderAgentControls();
+        updateScale();
+      }
+
+      function updateScale() {
+        const nativeWidth = 2170;
+        const nativeHeight = 60;
+        const availableWidth = Math.max(deviceBed.clientWidth - 24, 280);
+        const scale = state.scale === "native" ? 1 : Math.min(availableWidth / nativeWidth, 1);
+        touchbar.style.transform = `scale(${scale})`;
+        stage.style.width = `${nativeWidth * scale}px`;
+        stage.style.height = `${nativeHeight * scale}px`;
+        document.querySelectorAll("[data-scale]").forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.scale === state.scale));
+        });
+      }
+
+      function setEventMessage(message, announce = false) {
+        eventMessage.textContent = message;
+        if (announce) actionStatus.textContent = message;
+      }
+
+      function actionLabel(action) {
+        if (action === "codex") return "Codex";
+        const workspace = workspaces.find((candidate) => `workspace-${candidate.number}` === action);
+        return workspace ? `Workspace ${workspace.number}, ${workspace.agent}` : action;
+      }
+
+      function commitAgentAction(action) {
+        const label = actionLabel(action);
+        state.pendingAgents.add(action);
+        setEventMessage(`${label}: focus requested. Waiting for source verification.`, true);
+        render();
+        window.setTimeout(() => {
+          state.pendingAgents.delete(action);
+          state.focusedTarget = action;
+          if (action === "codex") state.codexState = "focused";
+          else if (state.codexState === "focused") state.codexState = "open";
+          document.querySelector("#codex-state").value = state.codexState;
+          setEventMessage(`${label}: focus verified.`, true);
+          render();
+        }, 650);
+      }
+
+      function commitProfile(profileKey) {
+        if (!profilePresentation[profileKey] || state.pendingProfile) return;
+        const profile = profilePresentation[profileKey];
+        state.pendingProfile = profileKey;
+        setEventMessage(`${profile.label}: requested. Waiting for system verification.`, true);
+        render();
+        window.setTimeout(() => {
+          state.powerProfile = profileKey;
+          state.pendingProfile = null;
+          state.powerChooserOpen = false;
+          document.querySelector("#power-profile").value = profileKey;
+          setEventMessage(`${profile.label}: power profile verified.`, true);
+          render();
+        }, 700);
+      }
+
+      function commitAction(action) {
+        const workflowAction = action === "codex" || action.startsWith("workspace-");
+        if (workflowAction && (state.failed || state.locked)) return;
+        if (workflowAction) {
+          commitAgentAction(action);
+          return;
+        }
+        if (action === "open-power") {
+          state.powerChooserOpen = true;
+          setEventMessage("Choose a power profile. No change has been made.");
+          render();
+          return;
+        }
+        if (action === "cancel-power") {
+          state.powerChooserOpen = false;
+          setEventMessage("Power profile selection cancelled.", true);
+          render();
+          return;
+        }
+        if (action.startsWith("profile-")) {
+          commitProfile(action.replace("profile-", ""));
+          return;
+        }
+        setEventMessage(`${action}: prototype key committed on release.`, true);
+      }
+
+      function insideWithSlop(event, element, slop = 10) {
+        const rect = element.getBoundingClientRect();
+        return event.clientX >= rect.left - slop
+          && event.clientX <= rect.right + slop
+          && event.clientY >= rect.top - slop
+          && event.clientY <= rect.bottom + slop;
+      }
+
+      touchbar.addEventListener("pointerdown", (event) => {
+        const target = event.target.closest("[data-action]");
+        if (!target || target.disabled || event.button !== 0) return;
+        event.preventDefault();
+        target.setPointerCapture(event.pointerId);
+        activePress = {
+          target,
+          action: target.dataset.action,
+          pointerId: event.pointerId,
+          eligible: true,
+        };
+        target.classList.add("is-pressed");
+        setEventMessage(`${actionLabel(activePress.action)}: pressed, not committed.`);
+      });
+
+      touchbar.addEventListener("pointermove", (event) => {
+        if (!activePress || event.pointerId !== activePress.pointerId) return;
+        const eligible = insideWithSlop(event, activePress.target);
+        if (eligible === activePress.eligible) return;
+        activePress.eligible = eligible;
+        activePress.target.classList.toggle("is-pressed", eligible);
+        activePress.target.classList.toggle("is-cancelled", !eligible);
+        setEventMessage(eligible
+          ? `${actionLabel(activePress.action)}: press restored. Release to commit.`
+          : `${actionLabel(activePress.action)}: moved away. Release will cancel.`);
+      });
+
+      touchbar.addEventListener("pointerup", (event) => {
+        if (!activePress || event.pointerId !== activePress.pointerId) return;
+        const { target, action } = activePress;
+        const eligible = insideWithSlop(event, target);
+        target.classList.remove("is-pressed", "is-cancelled");
+        lastPointerRelease = performance.now();
+        activePress = null;
+        if (eligible) commitAction(action);
+        else setEventMessage(`${actionLabel(action)}: cancelled.`);
+      });
+
+      function cancelActivePress(message) {
+        if (!activePress) return;
+        activePress.target.classList.remove("is-pressed", "is-cancelled");
+        activePress = null;
+        setEventMessage(message);
+      }
+
+      touchbar.addEventListener("pointercancel", () => cancelActivePress("Touch cancelled. No action committed."));
+      touchbar.addEventListener("lostpointercapture", () => {
+        if (activePress) cancelActivePress("Touch capture ended. No action committed.");
+      });
+      touchbar.addEventListener("click", (event) => {
+        const target = event.target.closest("[data-action]");
+        if (!target || target.disabled) return;
+        if (performance.now() - lastPointerRelease < 350) {
+          event.preventDefault();
+          return;
+        }
+        commitAction(target.dataset.action);
+      });
+
+      document.addEventListener("keydown", (event) => {
+        const element = event.target;
+        const editing = element.matches("input, select, textarea") || element.isContentEditable;
+        if (editing) return;
+        if (event.key === "Escape" && state.powerChooserOpen && !state.pendingProfile) {
+          state.powerChooserOpen = false;
+          setEventMessage("Power profile selection cancelled.", true);
+          render();
+        } else if (event.key === "Escape") {
+          cancelActivePress("Press cancelled with Escape.");
+        }
+      });
+
+      document.querySelectorAll("[data-scale]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.scale = button.dataset.scale;
+          updateScale();
+        });
+      });
+      document.querySelector("#theme").addEventListener("change", (event) => {
+        state.theme = event.target.value;
+        render();
+      });
+      document.querySelector("#workspace-count").addEventListener("change", (event) => {
+        state.workspaceCount = Number(event.target.value);
+        render({ controls: true });
+      });
+      document.querySelector("#focused-target").addEventListener("change", (event) => {
+        state.focusedTarget = event.target.value;
+        if (state.focusedTarget === "codex") state.codexState = "focused";
+        else if (state.codexState === "focused") state.codexState = "open";
+        document.querySelector("#codex-state").value = state.codexState;
+        render();
+      });
+      document.querySelector("#codex-state").addEventListener("change", (event) => {
+        state.codexState = event.target.value;
+        if (state.codexState === "focused") state.focusedTarget = "codex";
+        else if (state.focusedTarget === "codex") state.focusedTarget = "workspace-1";
+        render();
+      });
+      document.querySelector("#power-profile").addEventListener("change", (event) => {
+        state.powerProfile = event.target.value;
+        render();
+      });
+      document.querySelector("#cpu-temp").addEventListener("input", (event) => {
+        state.cpuTemp = Number(event.target.value);
+        render();
+      });
+      document.querySelector("#gpu-temp").addEventListener("input", (event) => {
+        state.gpuTemp = Number(event.target.value);
+        render();
+      });
+      document.querySelector("#dgpu-on").addEventListener("change", (event) => {
+        state.dgpuOn = event.target.checked;
+        render();
+      });
+      for (const id of ["fn-layer", "locked", "failed"]) {
+        document.querySelector(`#${id}`).addEventListener("change", (event) => {
+          state[{ "fn-layer": "fnLayer", locked: "locked", failed: "failed" }[id]] = event.target.checked;
+          state.powerChooserOpen = false;
+          render();
+        });
+      }
+      document.querySelector("#agent-controls").addEventListener("change", (event) => {
+        const number = Number(event.target.dataset.workspaceStatus);
+        if (!number) return;
+        workspaces[number - 1].status = event.target.value;
+        render();
+      });
+      window.addEventListener("resize", updateScale);
+
+      renderAgentControls();
+      render();
+    </script>
+  </body>
+</html>

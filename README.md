@@ -20,18 +20,18 @@ The initial target is intentionally narrow:
 - the installed Herdr API
 - the Codex desktop app
 
-## Version 1
+## Version 0.1
 
-Version 1 is complete when the Touch Bar continuously displays:
+Version 0.1 is complete when the Touch Bar continuously displays:
 
 - one Codex app tile;
-- the main agents from up to three Herdr workspaces in Herdr order;
-- accurate color and text status from verified sources;
+- the main agents from up to four Herdr workspaces in Herdr order;
+- accurate status signs and semantic color from verified sources;
 - tap-to-launch or tap-to-focus behavior for every visible tile; and
 - an Fn/media layer plus automatic return to the firmware row when TouchSignal
   cannot own the hardware safely.
 
-Version 1 does not include a command palette, workflow launcher, approval
+Version 0.1 does not include a command palette, workflow launcher, approval
 control, reasoning selector, subagent browser, arbitrary prompt input, or swipe
 navigation.
 
