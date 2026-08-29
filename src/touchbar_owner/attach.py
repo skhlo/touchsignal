@@ -19,10 +19,6 @@ def attach_touchbar(
     timeout: float = 20.0,
     inspect: Callable[[str], DrmCard] = inspect_appletbdrm_card,
 ) -> DrmCard:
-    existing = appletbdrm_card(root)
-    if existing is not None:
-        return inspect(existing.path)
-
     deadline = monotonic() + timeout
     usb = find_touchbar_usb(root)
     while usb is None:
@@ -55,10 +51,16 @@ def attach_touchbar(
             raise RuntimeError(f"unable to switch Touch Bar to config {DRM_CONFIG}")
         sleep(0.25)
 
+    last_error: Exception | None = None
     while True:
         card = appletbdrm_card(root)
         if card is not None:
-            return inspect(card.path)
+            try:
+                return inspect(card.path)
+            except Exception as exc:
+                last_error = exc
         if monotonic() > deadline:
+            if last_error is not None:
+                raise RuntimeError(str(last_error)) from last_error
             raise RuntimeError("appletbdrm card did not appear")
         sleep(0.25)

@@ -11,7 +11,7 @@
 # "Apple Inc. Touch Bar Display" stays on seat0.
 # USB, backlight, and appletbdrm use group input because this session already
 # has it. Do not copy tiny-dfr's automatic USB config-2 write.
-SUBSYSTEM=="drm", KERNEL=="card*", DRIVERS=="appletbdrm", TAG-="master-of-seat", ENV{ID_SEAT}="seat-touchbar", GROUP="input", MODE="0660"
+SUBSYSTEM=="drm", KERNEL=="card*", ATTRS{idVendor}=="05ac", ATTRS{idProduct}=="8302", TAG-="master-of-seat", ENV{ID_SEAT}="seat-touchbar", GROUP="input", MODE="0660", RUN+="/bin/chown root:input /dev/dri/%k", RUN+="/bin/chmod 0660 /dev/dri/%k"
 SUBSYSTEM=="input", KERNEL=="input*", ATTR{name}=="Apple Inc. Touch Bar Display Touchpad", ENV{ID_SEAT}="seat-touchbar"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Apple Inc. Touch Bar Display Touchpad", ENV{ID_SEAT}="seat-touchbar"
 

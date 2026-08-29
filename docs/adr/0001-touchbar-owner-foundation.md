@@ -38,6 +38,11 @@ uinput. Intel and AMD DRM cards stay untouched.
 
 Automated tests cover exclusive claim, competing-renderer refusal, failed
 attach restore, 2170 by 60 presentation, and touch-down/move/up reporting
-against a fake host. Live attach, physical touch, idle CPU, and three
-suspend/resume cycles remain machine evidence and must be recorded from the
-MacBookPro16,1 before this decision is treated as hardware-complete.
+against a fake host.
+
+Live attach on this MacBookPro16,1 switched USB 05ac:8302 to configuration 2
+and created appletbdrm `/dev/dri/card0`. The only connected DRM mode was
+60 by 2008, which the owner presents as 2008 by 60. Issue #2 requires a
+stable 2170 by 60 surface, so scanout was refused and USB configuration 1
+was restored. Physical touch, idle CPU, and three suspend/resume cycles
+were not run because native 2170 by 60 presentation is not available.

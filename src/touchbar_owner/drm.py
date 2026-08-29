@@ -143,6 +143,18 @@ DRM_MODE_DESTROY_DUMB = _iowr(0xB4, ctypes.sizeof(drm_mode_destroy_dumb))
 DRM_MODE_CONNECTED = 1
 
 
+def select_connected_connector(probed, current):
+    selected = None
+    for option in (probed, current):
+        if not option:
+            continue
+        if option.contents.connection == DRM_MODE_CONNECTED and option.contents.count_modes > 0:
+            selected = option
+            break
+    unused = [option for option in (probed, current) if option and option != selected]
+    return selected, unused
+
+
 def copy_drm_mode(mode: drmModeModeInfo) -> drmModeModeInfo:
     copied = drmModeModeInfo()
     ctypes.memmove(ctypes.byref(copied), ctypes.byref(mode), ctypes.sizeof(drmModeModeInfo))
@@ -219,18 +231,15 @@ def inspect_appletbdrm_card(path: str) -> DrmCard:
             connector = None
             for index in range(res.contents.count_connectors):
                 connector_id = res.contents.connectors[index]
-                candidate = lib.drmModeGetConnectorCurrent(fd, connector_id) or lib.drmModeGetConnector(
-                    fd, connector_id
-                )
-                if not candidate:
+                probed = lib.drmModeGetConnector(fd, connector_id)
+                current = lib.drmModeGetConnectorCurrent(fd, connector_id)
+                candidate, unused = select_connected_connector(probed, current)
+                for option in unused:
+                    lib.drmModeFreeConnector(option)
+                if candidate is None:
                     continue
-                if (
-                    candidate.contents.connection == DRM_MODE_CONNECTED
-                    and candidate.contents.count_modes > 0
-                ):
-                    connector = candidate
-                    break
-                lib.drmModeFreeConnector(candidate)
+                connector = candidate
+                break
             if connector is None:
                 raise RuntimeError(f"no connected Touch Bar connector on {path}")
             try:
@@ -373,18 +382,15 @@ def open_appletbdrm_display(card: DrmCard) -> LiveDisplaySession:
             connector = None
             for index in range(res.contents.count_connectors):
                 connector_id = res.contents.connectors[index]
-                candidate = lib.drmModeGetConnectorCurrent(fd, connector_id) or lib.drmModeGetConnector(
-                    fd, connector_id
-                )
-                if not candidate:
+                probed = lib.drmModeGetConnector(fd, connector_id)
+                current = lib.drmModeGetConnectorCurrent(fd, connector_id)
+                candidate, unused = select_connected_connector(probed, current)
+                for option in unused:
+                    lib.drmModeFreeConnector(option)
+                if candidate is None:
                     continue
-                if (
-                    candidate.contents.connection == DRM_MODE_CONNECTED
-                    and candidate.contents.count_modes > 0
-                ):
-                    connector = candidate
-                    break
-                lib.drmModeFreeConnector(candidate)
+                connector = candidate
+                break
             if connector is None:
                 raise RuntimeError("no connected appletbdrm connector")
             try:

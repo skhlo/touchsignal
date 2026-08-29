@@ -129,3 +129,21 @@ Do not edit `~/.config/hypr/monitors.lua` from this repository. If a later
 live attach shows a Touch Bar connector in `hyprctl monitors all`, disable
 that named output locally after confirming it, then run `hyprctl reload` and
 `hyprctl configerrors`. `eDP-2` is the apple_gmux dummy, not the Touch Bar.
+
+## Live attach
+
+Recorded on 2026-08-29 after an approved udev install:
+
+| Surface | Value |
+| --- | --- |
+| USB configuration during claim | 2 |
+| appletbdrm card | `/dev/dri/card0` |
+| Connected DRM mode | 60x2008 at 60 Hz |
+| Logical size after rotation | 2008x60 |
+| Native 2170x60 mode | absent |
+| Restore | USB configuration 1, mode 2, Fn Y, autodim Y, brightness 2 |
+| Competing renderer | none |
+| Hyprland monitors after restore | eDP-1 enabled, eDP-2 disabled |
+
+Claim refused the 2008 by 60 mode. Physical touch, idle measurement, and
+suspend/resume were not run.
