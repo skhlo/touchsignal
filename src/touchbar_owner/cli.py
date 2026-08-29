@@ -10,13 +10,14 @@ from pathlib import Path
 
 from .chatgpt import ChatGPTActions, HyprlandSource, LiveHyprlandChatGPTAdapter
 from .discovery import competing_renderer_names, find_touchbar_usb, list_drm_cards, read_firmware_row
+from .herdr import HerdrActions, HerdrSource, LiveHerdrAdapter
 from .host import Host
 from .live import LiveHost
 from .owner import OwnerError, TouchBarOwner
 from .restore import restore_firmware_row
 from .runtime import PreflightError, SupervisedRuntime, SupervisedRuntimeError
 from .types import OBSERVED_BASELINE, firmware_row_restored
-from .workflow import ChatGPTWorkflow, WorkflowRenderer
+from .workflow import ChatGPTWorkflow, HerdrWorkflow, WorkflowRenderer
 
 
 def _print_row(row) -> None:
@@ -180,12 +181,20 @@ def build_product_runtime(
     restart_delay: float,
     source: HyprlandSource | None = None,
     actions: ChatGPTActions | None = None,
+    herdr_source: HerdrSource | None = None,
+    herdr_actions: HerdrActions | None = None,
 ) -> SupervisedRuntime:
     adapter = LiveHyprlandChatGPTAdapter()
-    workflow = ChatGPTWorkflow(source or adapter, actions or adapter)
+    chatgpt = ChatGPTWorkflow(source or adapter, actions or adapter)
+    herdr_adapter = LiveHerdrAdapter()
+    herdr = HerdrWorkflow(
+        herdr_source or herdr_adapter,
+        herdr_actions or herdr_adapter,
+        chatgpt=chatgpt,
+    )
     return SupervisedRuntime(
         host,
-        renderer=WorkflowRenderer(workflow),
+        renderer=WorkflowRenderer(herdr),
         restart_delay=restart_delay,
     )
 
