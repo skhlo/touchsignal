@@ -143,6 +143,15 @@ DRM_MODE_MAP_DUMB = _iowr(0xB3, ctypes.sizeof(drm_mode_map_dumb))
 DRM_MODE_DESTROY_DUMB = _iowr(0xB4, ctypes.sizeof(drm_mode_destroy_dumb))
 DRM_MODE_CONNECTED = 1
 
+HERDR_STATE_COLORS = {
+    "ready": (0.41, 0.46, 0.54),
+    "working": (0.54, 0.68, 0.80),
+    "blocked": (0.92, 0.72, 0.30),
+    "done": (0.64, 0.75, 0.55),
+    "unknown": (0.54, 0.57, 0.63),
+    "unavailable": (0.75, 0.38, 0.42),
+}
+
 
 def select_connected_connector(probed, current):
     selected = None
@@ -189,34 +198,153 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
     ctx.rectangle(target.x, target.y, target.width, target.height)
     ctx.stroke()
 
-    _draw_logo_box(ctx, tile.logo_box)
+    _draw_logo_box(ctx, tile.logo_box, tile.logo_asset)
     _draw_status_sign(ctx, tile.status_box, str(tile.status_sign))
 
+    for herdr_tile in workflow.herdr_tiles:
+        _draw_herdr_tile(ctx, herdr_tile)
+
+    for empty_slot in workflow.empty_slots:
+        _draw_empty_herdr_slot(ctx, empty_slot.target)
+
     reserved = workflow.reserved_center
-    ctx.set_source_rgb(0.08, 0.10, 0.14)
-    ctx.rectangle(reserved.x, reserved.y, reserved.width, reserved.height)
-    ctx.fill()
+    if reserved is not None:
+        ctx.set_source_rgb(0.08, 0.10, 0.14)
+        ctx.rectangle(reserved.x, reserved.y, reserved.width, reserved.height)
+        ctx.fill()
 
 
-def _draw_logo_box(ctx, box) -> None:
+def _draw_logo_box(ctx, box, asset: str | None) -> None:
+    _draw_identity_box(ctx, box, "C", asset)
+
+
+def _draw_identity_box(ctx, box, label: str, asset: str | None = None) -> None:
     ctx.set_source_rgb(0.18, 0.24, 0.32)
     ctx.rectangle(box.x, box.y, box.width, box.height)
     ctx.fill()
+    if asset is not None and _draw_logo_asset(ctx, box, asset):
+        return
     ctx.set_source_rgb(0.54, 0.68, 0.80)
     ctx.select_font_face("Sans")
-    ctx.set_font_size(18)
-    _show_centered_text(ctx, "C", box.x, box.y, box.width, box.height)
+    ctx.set_font_size(14 if len(label) > 1 else 18)
+    _show_centered_text(ctx, label, box.x, box.y, box.width, box.height)
 
 
-def _draw_status_sign(ctx, box, sign: str) -> None:
-    color = {
+def _draw_herdr_tile(ctx, tile) -> None:
+    target = tile.target
+    background = (0.15, 0.22, 0.32) if tile.pressed else (0.10, 0.14, 0.20)
+    ctx.set_source_rgb(*background)
+    ctx.rectangle(target.x, target.y, target.width, target.height)
+    ctx.fill()
+
+    if tile.touch_cancelled or tile.source_lost or tile.focus_failed:
+        border = (0.28, 0.30, 0.34)
+    elif tile.pending:
+        border = (0.92, 0.80, 0.55)
+    else:
+        border = (0.31, 0.40, 0.52)
+    ctx.set_source_rgb(*border)
+    ctx.rectangle(target.x, target.y, target.width, target.height)
+    ctx.stroke()
+
+    ctx.set_source_rgb(0.72, 0.77, 0.83)
+    ctx.select_font_face("Sans")
+    ctx.set_font_size(11)
+    _show_centered_text(
+        ctx,
+        str(tile.workspace_number),
+        target.x + 2,
+        target.y,
+        19,
+        target.height,
+    )
+
+    identity = tile.identity_fallback or _workspace_fallback(tile.workspace_label)
+    if tile.logo_box is not None:
+        _draw_identity_box(ctx, tile.logo_box, identity, tile.logo_asset)
+    if tile.status_box is not None:
+        _draw_status_sign(
+            ctx,
+            tile.status_box,
+            str(tile.status_sign),
+            color=HERDR_STATE_COLORS.get(tile.state_token),
+        )
+
+
+def _draw_empty_herdr_slot(ctx, target) -> None:
+    ctx.set_source_rgb(0.12, 0.15, 0.19)
+    ctx.rectangle(target.x, target.y, target.width, target.height)
+    ctx.stroke()
+
+
+def _workspace_fallback(label: str | None) -> str:
+    if not label:
+        return "--"
+    words = label.split()
+    if len(words) > 1:
+        return "".join(word[0] for word in words[:2]).upper()
+    return label[:2].upper()
+
+
+def _draw_logo_asset(ctx, box, asset: str) -> bool:
+    path = _resolve_asset_path(asset)
+    if path is None:
+        return False
+    try:
+        if path.suffix.casefold() == ".png":
+            import cairo
+
+            surface = cairo.ImageSurface.create_from_png(str(path))
+            padding = 3
+            scale = min(
+                (box.width - padding * 2) / surface.get_width(),
+                (box.height - padding * 2) / surface.get_height(),
+            )
+            x = box.x + (box.width - surface.get_width() * scale) / 2
+            y = box.y + (box.height - surface.get_height() * scale) / 2
+            ctx.save()
+            ctx.translate(x, y)
+            ctx.scale(scale, scale)
+            ctx.set_source_surface(surface, 0, 0)
+            ctx.paint()
+            ctx.restore()
+            return True
+
+        import gi
+
+        gi.require_version("Rsvg", "2.0")
+        from gi.repository import Rsvg
+
+        handle = Rsvg.Handle.new_from_file(str(path))
+        handle.set_stylesheet(b"svg { color: #8aadc9; }")
+        viewport = Rsvg.Rectangle()
+        viewport.x = box.x + 3
+        viewport.y = box.y + 3
+        viewport.width = box.width - 6
+        viewport.height = box.height - 6
+        handle.render_document(ctx, viewport)
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_asset_path(asset: str) -> Path | None:
+    relative = Path(asset)
+    for candidate in (relative, Path(__file__).resolve().parents[2] / relative):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _draw_status_sign(ctx, box, sign: str, *, color=None) -> None:
+    selected_color = color or {
         "dot": (0.41, 0.46, 0.54),
         "arrow": (0.54, 0.68, 0.80),
         "check": (0.64, 0.75, 0.55),
         "pending": (0.92, 0.80, 0.55),
         "bang": (0.75, 0.38, 0.42),
     }.get(sign, (0.41, 0.46, 0.54))
-    ctx.set_source_rgb(*color)
+    ctx.set_source_rgb(*selected_color)
     cx = box.x + box.width / 2
     cy = box.y + box.height / 2
     radius = min(box.width, box.height) * 0.28
@@ -243,6 +371,10 @@ def _draw_status_sign(ctx, box, sign: str) -> None:
         ctx.stroke()
         ctx.arc(cx, cy + radius * 0.85, 1.5, 0.0, 6.283)
         ctx.fill()
+    elif sign == "question":
+        ctx.select_font_face("Sans")
+        ctx.set_font_size(19)
+        _show_centered_text(ctx, "?", box.x, box.y, box.width, box.height)
     else:
         ctx.arc(cx, cy, radius, 0.0, 6.283)
         ctx.fill()

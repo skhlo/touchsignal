@@ -142,8 +142,10 @@ class HerdrTileFrame:
     state_token: str
     workspace_label: str | None = None
     pressed: bool = False
+    touch_cancelled: bool = False
     pending: bool = False
     focus_timeout: bool = False
+    focus_failed: bool = False
     source_lost: bool = False
 
 
@@ -324,8 +326,14 @@ class ChatGPTWorkflow:
         return ChatGPTState.CLOSED
 
 
+class RenderableWorkflow(Protocol):
+    def process_touch_events(self, events: list[TouchEvent]) -> None: ...
+
+    def frame(self) -> WorkflowFrame: ...
+
+
 class WorkflowRenderer:
-    def __init__(self, workflow: ChatGPTWorkflow) -> None:
+    def __init__(self, workflow: RenderableWorkflow) -> None:
         self.workflow = workflow
 
     def render(self, touches: list[TouchEvent]) -> RuntimeFrame:
@@ -429,24 +437,42 @@ class HerdrWorkflow:
         self.press: PressState | None = None
         self.last_snapshot = HerdrSnapshot.unavailable()
         self.timed_out_request: PendingRequest | None = None
+        self.failed_request: PendingRequest | None = None
         self._last_selected: tuple[HerdrWorkspace, ...] = ()
         self._chatgpt = chatgpt
+        self._refresh_requested = True
+        self.source.subscribe(self._request_refresh)
 
     def process_touch_events(self, events: list[TouchEvent]) -> None:
         self.refresh()
         for event in events:
-            if chatgpt_target_geometry().contains(event.x, event.y):
+            if self._chatgpt is not None and self._chatgpt.press is not None:
                 self._chatgpt.process_touch_events([event])
-            else:
+                continue
+            if self.press is not None:
                 self._handle_herdr_touch(event)
+                continue
+            if event.kind != "down":
+                continue
+            if chatgpt_target_geometry().contains(event.x, event.y):
+                if self._chatgpt is not None:
+                    self._chatgpt.process_touch_events([event])
+                continue
+            self._handle_herdr_touch(event)
         self.refresh()
 
     def refresh(self) -> None:
-        self.last_snapshot = self.source.snapshot()
-        if self.last_snapshot.available:
-            self._last_selected = _selected_workspaces(self.last_snapshot)
+        if self._refresh_requested:
+            self._refresh_requested = False
+            self.last_snapshot = self.source.snapshot()
+            if self.last_snapshot.available:
+                self._last_selected = _selected_workspaces(self.last_snapshot)
         self._settle_pending()
         self._settle_timed_out_request()
+        self._settle_failed_request()
+
+    def _request_refresh(self) -> None:
+        self._refresh_requested = True
 
     def frame(self) -> WorkflowFrame:
         self.refresh()
@@ -497,7 +523,11 @@ class HerdrWorkflow:
         pane = self._focused_pane(workspace)
         identity = pane.agent if pane is not None else None
         logo_box, status_box = chatgpt_visual_boxes(target)
-        pressed = self.press is not None and self.press.target == f"herdr-{index}"
+        pressed = (
+            self.press is not None
+            and self.press.target == f"herdr-{index}"
+            and self.press.eligible
+        )
         cancelled = (
             self.press is not None
             and self.press.target == f"herdr-{index}"
@@ -507,8 +537,9 @@ class HerdrWorkflow:
         timed_out = (
             self.timed_out_request is not None and self.timed_out_request.slot == index
         )
+        failed = self.failed_request is not None and self.failed_request.slot == index
         state = self._lifecycle_state(workspace)
-        if timed_out:
+        if timed_out or failed:
             state = HerdrState.UNAVAILABLE
         return HerdrTileFrame(
             target=target,
@@ -523,8 +554,10 @@ class HerdrWorkflow:
             status_sign=_herdr_status_sign(state),
             state_token=_herdr_state_token(state),
             pressed=pressed,
+            touch_cancelled=cancelled,
             pending=pending,
             focus_timeout=timed_out,
+            focus_failed=failed,
             source_lost=not self.last_snapshot.available,
         )
 
@@ -540,7 +573,8 @@ class HerdrWorkflow:
         return AGENT_STATUS_TO_STATE.get(workspace.agent_status, HerdrState.UNKNOWN)
 
     def _touch_down(self, event: TouchEvent) -> None:
-        for index in range(HERDR_SLOT_COUNT):
+        selected = _selected_workspaces(self.last_snapshot)
+        for index in range(len(selected)):
             target = herdr_slot_geometry(index)
             if target.contains(event.x, event.y):
                 self.press = PressState(target=f"herdr-{index}", eligible=True)
@@ -596,6 +630,7 @@ class HerdrWorkflow:
             return
         if self.timed_out_request is not None:
             return
+        self.failed_request = None
         selected = _selected_workspaces(self.last_snapshot)
         if index >= len(selected):
             return
@@ -603,22 +638,28 @@ class HerdrWorkflow:
         pane = self._focused_pane(workspace)
         now = self.clock()
         if pane is not None and pane.agent is not None:
-            self.actions.request_agent_focus(pane.pane_id)
-            self.pending = PendingRequest(
+            request = PendingRequest(
                 kind=PendingKind.AGENT_FOCUS,
                 started_at=now,
                 slot=index,
                 workspace_id=workspace.workspace_id,
                 pane_id=pane.pane_id,
             )
+            if not self.actions.request_agent_focus(pane.pane_id):
+                self.failed_request = request
+                return
+            self.pending = request
             return
-        self.actions.request_workspace_focus(workspace.workspace_id)
-        self.pending = PendingRequest(
+        request = PendingRequest(
             kind=PendingKind.WORKSPACE_FOCUS,
             started_at=now,
             slot=index,
             workspace_id=workspace.workspace_id,
         )
+        if not self.actions.request_workspace_focus(workspace.workspace_id):
+            self.failed_request = request
+            return
+        self.pending = request
 
     def _settle_pending(self) -> None:
         if self.pending is None:
@@ -636,6 +677,12 @@ class HerdrWorkflow:
         if self._focus_verified(self.timed_out_request):
             self.pending = None
             self.timed_out_request = None
+
+    def _settle_failed_request(self) -> None:
+        if self.failed_request is None:
+            return
+        if self._focus_verified(self.failed_request):
+            self.failed_request = None
 
     def _focus_verified(self, request: PendingRequest) -> bool:
         if request.kind == PendingKind.AGENT_FOCUS and request.pane_id is not None:

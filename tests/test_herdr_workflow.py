@@ -1,16 +1,28 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 
-from touchbar_owner.herdr import HerdrPane, HerdrSnapshot, HerdrWorkspace
-from touchbar_owner.types import NATIVE_HEIGHT, NATIVE_WIDTH, TouchEvent
+from touchbar_owner.chatgpt import HyprlandClient, HyprlandSnapshot
+from touchbar_owner.drm import HERDR_STATE_COLORS, draw_runtime_frame
+from touchbar_owner.herdr import (
+    HERDR_REFRESH_SUBSCRIPTIONS,
+    HerdrPane,
+    HerdrSnapshot,
+    HerdrWorkspace,
+    resolve_herdr_socket_path,
+)
+from touchbar_owner.types import NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame, TouchEvent
 from touchbar_owner.workflow import (
     CHATGPT_TARGET_WIDTH,
     HERDR_SLOT_COUNT,
     HERDR_TARGET_HEIGHT,
     HERDR_TARGET_WIDTH,
+    TOUCH_SLOP,
     VISUAL_BOX_SIZE,
+    ChatGPTWorkflow,
     HerdrState,
     HerdrWorkflow,
     WorkflowFrame,
@@ -34,22 +46,82 @@ class ManualClock:
 class FakeHerdrSource:
     current: HerdrSnapshot
     snapshot_count: int = 0
+    subscribers: list[Callable[[], None]] = field(default_factory=list)
 
     def snapshot(self) -> HerdrSnapshot:
         self.snapshot_count += 1
         return self.current
+
+    def subscribe(self, on_change: Callable[[], None]) -> None:
+        self.subscribers.append(on_change)
+
+    def publish_change(self) -> None:
+        for subscriber in self.subscribers:
+            subscriber()
 
 
 @dataclass
 class FakeHerdrActions:
     agent_focuses: list[str] = field(default_factory=list)
     workspace_focuses: list[str] = field(default_factory=list)
+    accepts_focus: bool = True
 
-    def request_agent_focus(self, pane_id: str) -> None:
+    def request_agent_focus(self, pane_id: str) -> bool:
         self.agent_focuses.append(pane_id)
+        return self.accepts_focus
 
-    def request_workspace_focus(self, workspace_id: str) -> None:
+    def request_workspace_focus(self, workspace_id: str) -> bool:
         self.workspace_focuses.append(workspace_id)
+        return self.accepts_focus
+
+
+@dataclass
+class FakeHyprlandSource:
+    current: HyprlandSnapshot
+
+    def snapshot(self) -> HyprlandSnapshot:
+        return self.current
+
+
+@dataclass
+class FakeChatGPTActions:
+    focused: list[HyprlandClient] = field(default_factory=list)
+
+    def request_launch(self) -> None:
+        return None
+
+    def request_focus(self, client: HyprlandClient) -> None:
+        self.focused.append(client)
+
+
+@dataclass(frozen=True)
+class FakeTextExtents:
+    width: float
+    height: float = 10.0
+    x_bearing: float = 0.0
+    y_bearing: float = 0.0
+
+
+@dataclass
+class RecordingContext:
+    rectangles: list[tuple[int, int, int, int]] = field(default_factory=list)
+    texts: list[str] = field(default_factory=list)
+    colors: list[tuple[float, float, float]] = field(default_factory=list)
+
+    def set_source_rgb(self, red: float, green: float, blue: float) -> None:
+        self.colors.append((red, green, blue))
+
+    def rectangle(self, x: int, y: int, width: int, height: int) -> None:
+        self.rectangles.append((x, y, width, height))
+
+    def text_extents(self, text: str) -> FakeTextExtents:
+        return FakeTextExtents(width=float(len(text) * 8))
+
+    def show_text(self, text: str) -> None:
+        self.texts.append(text)
+
+    def __getattr__(self, _name: str) -> Callable[..., None]:
+        return lambda *_args, **_kwargs: None
 
 
 def make_workspace(
@@ -247,10 +319,48 @@ class HerdrTilePresentationTests(unittest.TestCase):
         workflow.frame()
 
         source.current = HerdrSnapshot.unavailable()
+        source.publish_change()
         tile = workflow.frame().herdr_tiles[0]
 
         self.assertTrue(tile.source_lost)
         self.assertEqual(tile.state, HerdrState.UNAVAILABLE)
+
+    def test_runtime_drawing_shows_workspace_identity_and_unknown_sign(self) -> None:
+        workspace, pane = make_workspace(1, status="unknown", agent="myagent")
+        workflow, _, _ = herdr_workflow(make_snapshot([(workspace, pane)]))
+        workflow_frame = workflow.frame()
+        workflow_frame = replace(
+            workflow_frame,
+            chatgpt_tile=replace(workflow_frame.chatgpt_tile, logo_asset=None),
+        )
+        context = RecordingContext()
+
+        draw_runtime_frame(
+            context,
+            NATIVE_WIDTH,
+            NATIVE_HEIGHT,
+            RuntimeFrame(
+                surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
+                touch_count=0,
+                last_touch=None,
+                workflow_frame=workflow_frame,
+            ),
+        )
+
+        tile = workflow_frame.herdr_tiles[0]
+        self.assertIn(
+            (tile.target.x, tile.target.y, tile.target.width, tile.target.height),
+            context.rectangles,
+        )
+        self.assertIn("1", context.texts)
+        self.assertIn("MY", context.texts)
+        self.assertIn("?", context.texts)
+        self.assertIn(HERDR_STATE_COLORS["unknown"], context.colors)
+        empty = workflow_frame.empty_slots[0].target
+        self.assertIn(
+            (empty.x, empty.y, empty.width, empty.height),
+            context.rectangles,
+        )
 
 
 class HerdrFocusActionTests(unittest.TestCase):
@@ -281,6 +391,33 @@ class HerdrFocusActionTests(unittest.TestCase):
         self.assertEqual(actions.workspace_focuses, [workspace.workspace_id])
         self.assertTrue(workflow.frame().herdr_tiles[0].pending)
 
+    def test_drag_away_cancels_and_drag_back_restores_pressed_tile(self) -> None:
+        workspace, pane = make_workspace(1, agent="codex")
+        workflow, _, actions = herdr_workflow(make_snapshot([(workspace, pane)]))
+        target = herdr_slot_geometry(0)
+
+        workflow.process_touch_events(
+            [TouchEvent("down", target.x + target.width // 2, target.y + 2)]
+        )
+        self.assertTrue(workflow.frame().herdr_tiles[0].pressed)
+
+        workflow.process_touch_events(
+            [TouchEvent("move", target.right + TOUCH_SLOP + 1, target.y + 2)]
+        )
+        cancelled = workflow.frame().herdr_tiles[0]
+        self.assertFalse(cancelled.pressed)
+        self.assertTrue(cancelled.touch_cancelled)
+
+        workflow.process_touch_events(
+            [TouchEvent("move", target.right + TOUCH_SLOP, target.y + 2)]
+        )
+        self.assertTrue(workflow.frame().herdr_tiles[0].pressed)
+
+        workflow.process_touch_events(
+            [TouchEvent("up", target.right + TOUCH_SLOP, target.y + 2)]
+        )
+        self.assertEqual(actions.agent_focuses, [pane.pane_id])
+
     def test_agent_focus_pending_clears_only_after_verification(self) -> None:
         workspace, pane = make_workspace(1, agent="codex")
         unfocused = make_snapshot([(workspace, pane)])
@@ -299,6 +436,7 @@ class HerdrFocusActionTests(unittest.TestCase):
         self.assertTrue(workflow.frame().herdr_tiles[0].pending)
 
         source.current = focused
+        source.publish_change()
         self.assertFalse(workflow.frame().herdr_tiles[0].pending)
 
     def test_workspace_focus_pending_clears_only_after_verification(self) -> None:
@@ -319,7 +457,21 @@ class HerdrFocusActionTests(unittest.TestCase):
         self.assertTrue(workflow.frame().herdr_tiles[0].pending)
 
         source.current = make_snapshot([(focused_workspace, None)])
+        source.publish_change()
         self.assertFalse(workflow.frame().herdr_tiles[0].pending)
+
+    def test_rejected_focus_request_becomes_unavailable_without_raising(self) -> None:
+        workspace, pane = make_workspace(1, agent="codex")
+        source = FakeHerdrSource(make_snapshot([(workspace, pane)]))
+        actions = FakeHerdrActions(accepts_focus=False)
+        workflow = HerdrWorkflow(source, actions)
+
+        workflow.process_touch_events(self.tap_slot(0))
+
+        tile = workflow.frame().herdr_tiles[0]
+        self.assertFalse(tile.pending)
+        self.assertTrue(tile.focus_failed)
+        self.assertEqual(tile.state, HerdrState.UNAVAILABLE)
 
     def test_focus_timeout_produces_explicit_unknown_state(self) -> None:
         clock = ManualClock()
@@ -354,6 +506,7 @@ class HerdrFocusActionTests(unittest.TestCase):
         self.assertEqual(actions.agent_focuses, [pane.pane_id])
 
         source.current = HerdrSnapshot.unavailable()
+        source.publish_change()
         tile = workflow.frame().herdr_tiles[0]
 
         self.assertTrue(tile.source_lost)
@@ -361,7 +514,7 @@ class HerdrFocusActionTests(unittest.TestCase):
 
 
 class HerdrTopologyRefreshTests(unittest.TestCase):
-    def test_refresh_takes_fresh_authoritative_snapshot(self) -> None:
+    def test_source_change_takes_fresh_authoritative_snapshot(self) -> None:
         first, first_pane = make_workspace(1, agent="codex")
         second, second_pane = make_workspace(2, agent="claude")
         workflow, source, actions = herdr_workflow(
@@ -372,6 +525,14 @@ class HerdrTopologyRefreshTests(unittest.TestCase):
         count_after_first = source.snapshot_count
 
         source.current = make_snapshot([(first, first_pane), (second, second_pane)])
+        stale = workflow.frame()
+
+        self.assertEqual(source.snapshot_count, count_after_first)
+        self.assertEqual(
+            [tile.workspace_number for tile in stale.herdr_tiles], [1]
+        )
+
+        source.publish_change()
         frame = workflow.frame()
 
         self.assertGreater(source.snapshot_count, count_after_first)
@@ -392,10 +553,84 @@ class HerdrTopologyRefreshTests(unittest.TestCase):
             "tab_closed",
             "pane_created",
             "pane_closed",
+            "pane_focused",
             "pane_agent_detected",
+            "pane_agent_status_changed",
+            "workspace_updated",
             "layout_updated",
         ):
             self.assertEqual(parse_topology_event({"event": kind}), kind)
         self.assertIsNone(parse_topology_event({"event": "pane_output_changed"}))
         self.assertIsNone(parse_topology_event({"event": 9}))
         self.assertIn("pane_moved", TOPOLOGY_EVENT_KINDS)
+        subscription_types = {
+            subscription["type"] for subscription in HERDR_REFRESH_SUBSCRIPTIONS
+        }
+        self.assertIn("workspace.updated", subscription_types)
+        self.assertNotIn("pane.agent_status_changed", subscription_types)
+
+
+class CompositeWorkflowContactTests(unittest.TestCase):
+    def test_contact_owner_receives_move_and_release_across_tile_boundaries(self) -> None:
+        client = HyprlandClient(address="0xabc", class_name="chatgpt")
+        actions = FakeChatGPTActions()
+        chatgpt = ChatGPTWorkflow(
+            FakeHyprlandSource(
+                HyprlandSnapshot(
+                    available=True,
+                    clients=(client,),
+                    active_address=None,
+                )
+            ),
+            actions,
+        )
+        workflow = HerdrWorkflow(
+            FakeHerdrSource(make_snapshot([])),
+            FakeHerdrActions(),
+            chatgpt=chatgpt,
+        )
+
+        workflow.process_touch_events(
+            [
+                TouchEvent("down", 40, 20),
+                TouchEvent("move", 200, 20),
+                TouchEvent("up", 200, 20),
+            ]
+        )
+
+        tile = workflow.frame().chatgpt_tile
+        self.assertFalse(tile.pressed)
+        self.assertFalse(tile.touch_cancelled)
+        self.assertEqual(actions.focused, [])
+
+
+class HerdrSocketPathTests(unittest.TestCase):
+    def test_socket_path_uses_explicit_environment_and_xdg_precedence(self) -> None:
+        home = Path("/users/example")
+
+        self.assertEqual(
+            resolve_herdr_socket_path(
+                "/run/herdr-explicit.sock",
+                environ={"HERDR_SOCKET_PATH": "/run/herdr-env.sock"},
+                home=home,
+            ),
+            "/run/herdr-explicit.sock",
+        )
+        self.assertEqual(
+            resolve_herdr_socket_path(
+                environ={"HERDR_SOCKET_PATH": "/run/herdr-env.sock"},
+                home=home,
+            ),
+            "/run/herdr-env.sock",
+        )
+        self.assertEqual(
+            resolve_herdr_socket_path(
+                environ={"XDG_CONFIG_HOME": "/tmp/example-config"},
+                home=home,
+            ),
+            "/tmp/example-config/herdr/herdr.sock",
+        )
+        self.assertEqual(
+            resolve_herdr_socket_path(environ={}, home=home),
+            "/users/example/.config/herdr/herdr.sock",
+        )
