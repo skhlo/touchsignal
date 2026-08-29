@@ -146,5 +146,15 @@ Recorded on 2026-08-29 after an approved udev install:
 | Hyprland monitors after restore | eDP-1 enabled, eDP-2 disabled |
 
 2008 by 60 is the native MacBookPro16,1 surface. It is not a fallback from
-2170 by 60. Physical touch, idle measurement, and suspend/resume remain to
-be run against that size.
+2170 by 60.
+
+Later live proof on 2026-08-29:
+
+| Check | Result |
+| --- | --- |
+| Exclusive claim | display, touch, backlight, virtual input |
+| Physical touch | two down/move/up sequences |
+| Visible scanout | red and white stripes across the bar |
+| Idle | 300.154 s, 0.0244 percent of one core |
+| Suspend cycle 1 | firmware row restored after resume |
+| Suspend cycles 2 and 3 | owner survived; appletbdrm card moved; restore returned USB configuration 1 |

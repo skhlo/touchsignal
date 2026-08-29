@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .surface import copy_logical_to_physical_scanout, test_surface_plan
 from .types import DrmCard, NATIVE_HEIGHT, NATIVE_WIDTH
 
 DRM_IOCTL_BASE = ord("d")
@@ -155,6 +156,14 @@ def select_connected_connector(probed, current):
     return selected, unused
 
 
+def draw_test_surface(ctx, width: int, height: int) -> None:
+    plan = test_surface_plan(width, height)
+    for stripe in plan.stripes:
+        ctx.set_source_rgb(*stripe.color)
+        ctx.rectangle(stripe.x, stripe.y, stripe.width, stripe.height)
+        ctx.fill()
+
+
 def copy_drm_mode(mode: drmModeModeInfo) -> drmModeModeInfo:
     copied = drmModeModeInfo()
     ctypes.memmove(ctypes.byref(copied), ctypes.byref(mode), ctypes.sizeof(drmModeModeInfo))
@@ -282,6 +291,7 @@ class LiveDisplaySession:
     conn_id: int
     mode: drmModeModeInfo
     mapping: mmap.mmap
+    pitch: int
     closed: bool = False
 
     @property
@@ -300,53 +310,44 @@ class LiveDisplaySession:
             raise RuntimeError("python-cairo is required to draw the test surface") from exc
         surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
         ctx = cairo.Context(surface)
-        ctx.set_source_rgb(0.04, 0.05, 0.07)
-        ctx.paint()
-        ctx.set_source_rgb(0.16, 0.45, 0.82)
-        ctx.rectangle(24, 8, 112, 44)
-        ctx.fill()
-        ctx.set_source_rgb(0.93, 0.95, 0.97)
-        ctx.select_font_face("sans-serif")
-        ctx.set_font_size(18)
-        ctx.move_to(152, 38)
-        ctx.show_text("TouchSignal owner spike 2008x60")
-        ctx.set_source_rgb(0.82, 0.28, 0.28)
-        ctx.rectangle(width - 220, 8, 196, 44)
-        ctx.fill()
-        ctx.set_source_rgb(1, 1, 1)
-        ctx.move_to(width - 204, 38)
-        ctx.show_text("touch here")
+        draw_test_surface(ctx, width, height)
         surface.flush()
         src = surface.get_data()
         stride = surface.get_stride()
         # appletbdrm scanout is physically rotated. The logical 2008x60 image is
         # written into the 60x2008 dumb buffer with a clockwise 90-degree copy.
         buf = memoryview(self.mapping)
-        if self.card.rotate90:
-            physical_h = self.card.vdisplay or height
-            pitch = self.mapping.size() // physical_h
-            for y in range(height):
-                for x in range(width):
-                    px = src[y * stride + x * 4 : y * stride + x * 4 + 4]
-                    dest_x = height - 1 - y
-                    dest_y = x
-                    offset = dest_y * pitch + dest_x * 4
-                    buf[offset : offset + 4] = px
-        else:
-            buf[: surface.get_height() * stride] = src
+        copy_logical_to_physical_scanout(
+            memoryview(src),
+            src_stride=stride,
+            width=width,
+            height=height,
+            dest=buf,
+            dest_pitch=self.pitch,
+            rotate90=self.card.rotate90,
+        )
+        print(
+            f"scanout rotate90={self.card.rotate90} pitch={self.pitch} map={self.mapping.size()} mode={self.card.hdisplay}x{self.card.vdisplay}",
+            flush=True,
+        )
         clip = drmModeClip(0, 0, self.card.hdisplay, self.card.vdisplay)
-        if self.lib.drmModeDirtyFB(self.fd, self.fb_id, ctypes.byref(clip), 1) != 0:
-            conn = ctypes.c_uint32(self.conn_id)
-            self.lib.drmModeSetCrtc(
-                self.fd,
-                self.crtc_id,
-                self.fb_id,
-                0,
-                0,
-                ctypes.byref(conn),
-                1,
-                ctypes.byref(self.mode),
-            )
+        dirty = self.lib.drmModeDirtyFB(self.fd, self.fb_id, ctypes.byref(clip), 1)
+        conn = ctypes.c_uint32(self.conn_id)
+        crtc = self.lib.drmModeSetCrtc(
+            self.fd,
+            self.crtc_id,
+            self.fb_id,
+            0,
+            0,
+            ctypes.byref(conn),
+            1,
+            ctypes.byref(self.mode),
+        )
+        print(f"drmModeDirtyFB={dirty} drmModeSetCrtc={crtc}", flush=True)
+        if dirty != 0:
+            raise RuntimeError(f"drmModeDirtyFB failed while presenting the test surface: {dirty}")
+        if crtc != 0:
+            raise RuntimeError(f"drmModeSetCrtc failed while presenting the test surface: {crtc}")
 
     def close(self) -> None:
         if self.closed:
@@ -436,6 +437,7 @@ def open_appletbdrm_display(card: DrmCard) -> LiveDisplaySession:
                     conn_id=conn_id,
                     mode=mode,
                     mapping=mapping,
+                    pitch=int(create.pitch),
                 )
                 owned = True
                 return session

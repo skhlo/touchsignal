@@ -110,13 +110,34 @@ class LiveResourceSession:
         self.path = path
         self.fd = fd
         self.closed = False
+        self.previous: str | None = None
+
+    def set_value(self, value: str) -> str:
+        if self.fd is None:
+            raise RuntimeError(f"{self.path} is not writable")
+        current = Path(self.path).read_text(encoding="utf-8", errors="replace").strip()
+        if self.previous is None:
+            self.previous = current
+        if current != value:
+            os.lseek(self.fd, 0, os.SEEK_SET)
+            os.write(self.fd, (value if value.endswith("\n") else value + "\n").encode())
+        return current
+
+    def restore_previous(self) -> None:
+        if self.fd is None or self.previous is None:
+            return
+        os.lseek(self.fd, 0, os.SEEK_SET)
+        os.write(self.fd, (self.previous + "\n").encode())
 
     def close(self) -> None:
         if self.closed:
             return
         self.closed = True
-        if self.fd is not None:
-            os.close(self.fd)
+        try:
+            self.restore_previous()
+        finally:
+            if self.fd is not None:
+                os.close(self.fd)
 
 
 def open_virtual_keyboard() -> LiveResourceSession:

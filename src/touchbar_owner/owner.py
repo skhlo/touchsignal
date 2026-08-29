@@ -106,6 +106,9 @@ class TouchBarOwner:
             self.host.open_backlight,
         )
         self.state.claimed.add("backlight")
+        set_value = getattr(self._backlight, "set_value", None)
+        if callable(set_value):
+            set_value("2")
 
         self._virtual_input = self.host.open_virtual_input()
         self.state.claimed.add("virtual_input")

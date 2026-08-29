@@ -42,7 +42,19 @@ against a fake host.
 
 Live attach on this MacBookPro16,1 switched USB 05ac:8302 to configuration 2
 and created appletbdrm `/dev/dri/card0`. The only connected DRM mode was
-60 by 2008, which the owner presents as logical 2008 by 60. That measured
-MacBookPro16,1 mode is now the native test surface. It is not a generic
-Touch Bar size. Physical touch, idle CPU, and three suspend/resume cycles
-remain live evidence after this size change.
+60 by 2008, presented as logical 2008 by 60. That measured MacBookPro16,1
+mode is the native test surface. It is not a generic Touch Bar size.
+
+Live proof recorded on 2026-08-29:
+
+- Exclusive claim of display, touch, backlight, and virtual input succeeded.
+- Physical touch reported two complete down/move/up sequences.
+- Visible scanout showed alternating red and white stripes across the bar.
+- Five idle minutes measured 0.0244 percent of one core, then restored USB
+  configuration 1.
+- Suspend/resume cycle 1, with the firmware row already restored, returned
+  USB configuration 1.
+- Cycles 2 and 3 held the owner through suspend. After resume, appletbdrm
+  reappeared as a new DRM card. Release failed with no such device, and
+  restore returned USB configuration 1, special-key mode 2, Fn Y, autodim Y,
+  and brightness 2. That is the restore-on-reattach-failure path.
