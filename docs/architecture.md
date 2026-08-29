@@ -1,6 +1,6 @@
 # TouchSignal architecture analysis
 
-This document records the verified design boundary for TouchSignal version 1.
+This document records the verified design boundary for TouchSignal 0.1.
 It separates observed machine facts from proposed implementation decisions.
 
 ## Product boundary
@@ -20,7 +20,7 @@ The following facts were observed on 2026-08-29 without changing system state.
 
 | Surface | Observed state | Design consequence |
 | --- | --- | --- |
-| Hardware | DMI reports `MacBookPro16,1`. | Version 1 may gate explicitly on this model. |
+| Hardware | DMI reports `MacBookPro16,1`. | Version 0.1 may gate explicitly on this model. |
 | Kernel | `7.1.8-arch1-Watanare-T2-3-t2` from `linux-t2`. | The first hardware test must target this exact kernel line. |
 | Firmware row | `hid_appletb_kbd` is loaded in special-key mode `2`, Fn toggling is enabled, and automatic dimming is enabled. | A known-good Fn/media fallback already exists without tiny-dfr. |
 | Backlight | `hid_appletb_bl` is loaded at brightness `2`. | Fallback restoration must restore brightness as well as key mode. |
@@ -29,7 +29,7 @@ The following facts were observed on 2026-08-29 without changing system state.
 | Existing renderer | No tiny-dfr package, service, or other Touch Bar renderer is installed or running. | The project must preserve the kernel row, not assume a tiny-dfr service is the local fallback. |
 | Omarchy | Omarchy `4.0.1` is active and the effective theme is staged under `~/.local/state/omarchy/current/theme`. | Read the effective palette after theme staging; never edit packaged themes. |
 | Herdr | Herdr `0.8.2`, protocol `20`, exposes session snapshots, workspace order, focus, lifecycle status, stable IDs, commands, and event subscriptions. | Herdr is the authoritative source and action surface for workspace tiles. |
-| Codex app | Hyprland reports the running app with class `chatgpt`. | Version 1 can verify closed, open, and focused states, but not internal task lifecycle. |
+| Codex app | Hyprland reports the running app with class `chatgpt`. | Version 0.1 can verify closed, open, and focused states, but not internal task lifecycle. |
 
 ## Architecture
 
@@ -71,18 +71,48 @@ tiles and they do not infer states their source cannot prove.
 
 Herdr lifecycle values remain exactly:
 
-- `idle` -> `Ready`
-- `working` -> `Working`
-- `blocked` -> `Needs input`
-- `done` -> `Done`
-- `unknown` -> `Unknown`
+- `idle` -> `Ready` with a dot sign
+- `working` -> `Working` with an arrow sign
+- `blocked` -> `Needs input` with an exclamation sign
+- `done` -> `Done` with a check sign
+- `unknown` -> `Unknown` with a question sign
 
-The tile always includes text. Color reinforces state but never replaces it.
+Each agent tile presents a logo and a non-color status sign in equally sized
+visual boxes. Color reinforces the sign but never replaces it. Accessible
+previews and diagnostic output use the full status label.
 
 The Codex desktop adapter is deliberately narrower. With the verified local
 surface, it may report only `Closed`, `Open`, and `Focused`. It must not claim
 that the app is working, idle, or blocked until a stable Codex lifecycle source
 is available.
+
+### Touch Bar layout
+
+The workflow layer has three stable regions.
+
+1. The left agent dock contains one persistent Codex tile followed by four
+   stable Herdr workspace slots. Empty Herdr slots preserve geometry. A full
+   four-workspace state therefore has five visible agent tiles.
+2. The center is reserved for future contextual information. Version 0.1 does not
+   move the agent dock into this space.
+3. The right hardware cluster contains only CPU temperature, GPU temperature,
+   and the power-profile control.
+
+Each agent hit target is 112 by 46 pixels. The logo and status sign sit side by
+side in equal 27-pixel boxes. Prototype letters stand in for final agent logos.
+Herdr tiles retain the workspace number so repeated agent identities remain
+distinguishable.
+
+CPU and GPU temperatures are read-only. The GPU adapter reads dGPU runtime state
+first and accesses the temperature source only when that state already reports
+active. When the dGPU is suspended or its state is unknown, the GPU temperature
+tile dims and shows `--°C`; there is no separate dGPU power tile. A hardware
+test must verify that the runtime-state query itself does not wake a suspended
+device before this polling path is accepted.
+
+The power-profile tile is the only interactive hardware tile. It opens explicit
+`Power saver`, `Balanced`, `Performance`, and `Cancel` choices and changes its
+label only after the system source verifies the selected profile.
 
 ### Herdr workspace selection
 
@@ -90,7 +120,7 @@ The Herdr adapter starts from the installed API snapshot and follows the
 installed schema instead of caching command syntax.
 
 1. Sort workspaces by Herdr's numeric `number` field.
-2. Keep the first three.
+2. Keep the first four.
 3. Use each workspace's `active_tab_id` and that tab layout's
    `focused_pane_id` to identify its main pane.
 4. If that pane hosts an agent, use its agent identity for the tile label.
@@ -152,7 +182,7 @@ The semantic mapping is:
 | pressed feedback | `lighter_background` |
 
 The Touch Bar is its own display, so translucent material has no useful layer
-behind it. Version 1 uses an opaque theme-derived background for stable contrast
+behind it. Version 0.1 uses an opaque theme-derived background for stable contrast
 and OLED legibility.
 
 ### Theme notification
@@ -177,7 +207,7 @@ TouchSignal's own configuration belongs under `~/.config/touchsignal/`, not
 
 ## Interaction contract
 
-Version 1 supports taps and the Fn layer only. It has no swipe, long-press, or
+Version 0.1 supports taps and the Fn layer only. It has no swipe, long-press, or
 double-tap gesture.
 
 For each tile:
@@ -203,7 +233,8 @@ the only route to an action.
 Fallback has two layers:
 
 1. While TouchSignal is healthy, Fn exposes a static function/media layer with
-   the familiar keys.
+   brightness, playback, and volume controls. It does not duplicate the
+   MacBookPro16,1 physical Escape key.
 2. When TouchSignal stops, fails, logs out, or cannot reattach after resume, its
    detach helper releases the devices and restores the kernel firmware row,
    special-key mode, Fn toggling, automatic dimming, and brightness.
@@ -217,9 +248,9 @@ When the session locks, agent labels and actions are hidden. TouchSignal shows a
 neutral media layer or blanks the panel and rejects workflow taps until the
 session unlocks.
 
-## Version 1 acceptance gates
+## Version 0.1 acceptance gates
 
-Version 1 is not complete until all of these pass on the actual MacBookPro16,1:
+Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1:
 
 - cold login starts exactly one renderer;
 - unsupported or missing hardware leaves the firmware row working;
@@ -232,8 +263,13 @@ Version 1 is not complete until all of these pass on the actual MacBookPro16,1:
 - idle CPU use is event-driven and remains below one percent of one core over a
   five-minute measurement;
 - the Codex tile launches and focuses only after Hyprland verification;
-- one, two, three, and more than three Herdr workspaces render in Herdr order;
-- every Herdr lifecycle state displays accurate text and semantic color;
+- one through four, and more than four, Herdr workspaces render in Herdr order;
+- the Codex tile remains visible beside all four Herdr workspace tiles;
+- the center remains reserved while CPU temperature, GPU temperature, and power
+  profile remain the only right-side tiles;
+- a suspended dGPU dims the GPU tile without a temperature read or wake event;
+- every Herdr lifecycle state displays its accurate sign and semantic color,
+  with the full label available in diagnostic output;
 - duplicate workspace names remain distinguishable by workspace number;
 - touch-down, release, cancellation, and drag-away behavior match the interaction
   contract;
@@ -246,7 +282,7 @@ Version 1 is not complete until all of these pass on the actual MacBookPro16,1:
 
 ## Deferred work
 
-The following remain outside version 1:
+The following remain outside version 0.1:
 
 - command palettes and workflow launchers;
 - approval or prompt controls;
