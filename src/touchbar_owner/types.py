@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-NATIVE_WIDTH = 2170
+NATIVE_WIDTH = 2008
 NATIVE_HEIGHT = 60
 USB_VENDOR = "05ac"
 USB_PRODUCT = "8302"

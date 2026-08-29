@@ -48,8 +48,9 @@ it after logout, suspend failure, renderer failure, or an intentional stop.
 ## Touch Bar owner spike
 
 Issue #2 selected the react-drm device model as the exclusive owner foundation
-and kept tiny-dfr as the fallback direction. Live attach, physical touch, idle
-CPU, and suspend/resume remain open on issue #2. The spike tooling lives in
+and kept tiny-dfr as the fallback direction. The native test surface is the
+measured MacBookPro16,1 mode of 2008 by 60 pixels. Live attach, physical touch,
+idle CPU, and suspend/resume remain open on issue #2. The spike tooling lives in
 `src/touchbar_owner/`. Restore USB configuration 1 with:
 
 ```bash

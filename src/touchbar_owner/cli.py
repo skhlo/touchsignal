@@ -163,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="record the current firmware-row baseline").set_defaults(func=cmd_status)
     sub.add_parser("restore", help="restore USB config 1, special-key mode, Fn, autodim, and brightness").set_defaults(func=cmd_restore)
-    claim = sub.add_parser("claim", help="claim appletbdrm, draw the 2170x60 test surface, then restore")
+    claim = sub.add_parser("claim", help="claim appletbdrm, draw the 2008x60 test surface, then restore")
     claim.add_argument("--seconds", type=float, default=20.0)
     claim.add_argument("--require-touch", action="store_true")
     claim.set_defaults(func=cmd_claim)

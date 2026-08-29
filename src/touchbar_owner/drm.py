@@ -309,7 +309,7 @@ class LiveDisplaySession:
         ctx.select_font_face("sans-serif")
         ctx.set_font_size(18)
         ctx.move_to(152, 38)
-        ctx.show_text("TouchSignal owner spike 2170x60")
+        ctx.show_text("TouchSignal owner spike 2008x60")
         ctx.set_source_rgb(0.82, 0.28, 0.28)
         ctx.rectangle(width - 220, 8, 196, 44)
         ctx.fill()
@@ -319,8 +319,8 @@ class LiveDisplaySession:
         surface.flush()
         src = surface.get_data()
         stride = surface.get_stride()
-        # appletbdrm scanout is physically rotated. The logical 2170x60 image is
-        # written into the 60x2170 dumb buffer with a clockwise 90-degree copy.
+        # appletbdrm scanout is physically rotated. The logical 2008x60 image is
+        # written into the 60x2008 dumb buffer with a clockwise 90-degree copy.
         buf = memoryview(self.mapping)
         if self.card.rotate90:
             physical_h = self.card.vdisplay or height

@@ -93,6 +93,10 @@ is available.
 
 ### Touch Bar layout
 
+The native MacBookPro16,1 surface is logical 2008 by 60 pixels, matching the
+measured appletbdrm mode of 60 by 2008. That size is model-specific. It is not
+a generic Touch Bar size and it is not a fallback from 2170 by 60.
+
 The workflow layer has three stable regions.
 
 1. The left agent dock contains one persistent Codex tile followed by four

@@ -40,15 +40,15 @@ class DrmModeCopyTests(unittest.TestCase):
     def test_copied_mode_survives_after_the_source_is_cleared(self) -> None:
         source = drmModeModeInfo()
         source.hdisplay = 60
-        source.vdisplay = 2170
-        source.name = b"60x2170"
+        source.vdisplay = 2008
+        source.name = b"60x2008"
         copied = copy_drm_mode(source)
         source.hdisplay = 0
         source.vdisplay = 0
         source.name = b""
         self.assertEqual(copied.hdisplay, 60)
-        self.assertEqual(copied.vdisplay, 2170)
-        self.assertEqual(copied.name, b"60x2170")
+        self.assertEqual(copied.vdisplay, 2008)
+        self.assertEqual(copied.name, b"60x2008")
 
 
 class RediscoveryTests(unittest.TestCase):

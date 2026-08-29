@@ -22,5 +22,6 @@ the firmware keyboard named Apple Inc. Touch Bar Display.
 _Avoid_: event7, touchpad, firmware keyboard
 
 **Native test surface**:
-The exclusive owner's 2170 by 60 pixel scanout used to prove display ownership.
-_Avoid_: preview canvas, logical 2008x60 fallback
+The exclusive owner's 2008 by 60 pixel scanout on MacBookPro16,1, matching the
+measured appletbdrm mode.
+_Avoid_: preview canvas, 2170x60 generic Touch Bar size

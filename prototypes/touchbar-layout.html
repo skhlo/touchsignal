@@ -198,7 +198,7 @@
         position: absolute;
         top: 0;
         left: 0;
-        width: 2170px;
+        width: 2008px;
         height: 60px;
         overflow: hidden;
         border: 1px solid color-mix(in srgb, var(--bar-fg) 10%, transparent);
@@ -864,7 +864,7 @@
           <p class="eyebrow">TouchSignal UX study</p>
           <h1>Agents left. Hardware right. Space to grow.</h1>
           <p class="lede">
-            Test the agreed compact layout at 2170 × 60 pixels. Agent visuals stay
+            Test the agreed compact layout at the measured MacBookPro16,1 size of 2008 × 60 pixels. Agent visuals stay
             small inside generous touch targets, the center remains reserved, and
             the thermal instruments never pretend to be controls.
           </p>
@@ -876,7 +876,7 @@
         <div class="surface-header">
           <div class="surface-title">
             <h2 id="preview-title">Hardware preview</h2>
-            <span>2170 × 60 px</span>
+            <span>2008 × 60 px</span>
           </div>
           <div class="scale-control" aria-label="Preview scale">
             <button type="button" data-scale="fit" aria-pressed="true">Fit</button>
@@ -1379,7 +1379,7 @@
       }
 
       function updateScale() {
-        const nativeWidth = 2170;
+        const nativeWidth = 2008;
         const nativeHeight = 60;
         const availableWidth = Math.max(deviceBed.clientWidth - 24, 280);
         const scale = state.scale === "native" ? 1 : Math.min(availableWidth / nativeWidth, 1);

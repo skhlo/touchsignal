@@ -10,7 +10,7 @@ from touchbar_owner.types import NATIVE_HEIGHT, NATIVE_WIDTH, TouchEvent
 
 
 class NativeSurfaceAndTouchTests(unittest.TestCase):
-    def test_claim_presents_a_stable_2170_by_60_test_surface(self) -> None:
+    def test_claim_presents_a_stable_2008_by_60_test_surface(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
             owner = TouchBarOwner(host)
@@ -66,13 +66,13 @@ class NativeSurfaceAndTouchTests(unittest.TestCase):
                     card.driver,
                     card.path,
                     60,
-                    2008,
+                    2170,
                     True,
                 )
 
             host.attach_display = bad_attach  # type: ignore[method-assign]
             owner = TouchBarOwner(host)
-            with self.assertRaisesRegex(OwnerError, "2170x60"):
+            with self.assertRaisesRegex(OwnerError, "2008x60"):
                 owner.claim()
             self.assertEqual(host.opened_drm_cards, [])
             self.assertEqual(host.firmware_row(), host.baseline_firmware_row())

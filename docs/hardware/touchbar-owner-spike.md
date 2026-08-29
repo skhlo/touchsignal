@@ -78,7 +78,7 @@ The selected foundation is the react-drm-for-touchbar device model:
 4. Wait for the appletbdrm DRM card and open only that card.
 5. Rediscover the Touch Bar digitizer.
 6. Open backlight and uinput.
-7. Present a stable 2170 by 60 test surface.
+7. Present a stable 2008 by 60 test surface.
 8. Restore the firmware row on normal stop or failed attach.
 
 Never run two Touch Bar renderers. Never open card1 or card2.
@@ -140,10 +140,11 @@ Recorded on 2026-08-29 after an approved udev install:
 | appletbdrm card | `/dev/dri/card0` |
 | Connected DRM mode | 60x2008 at 60 Hz |
 | Logical size after rotation | 2008x60 |
-| Native 2170x60 mode | absent |
+| Native test surface | 2008x60, the measured MacBookPro16,1 mode |
 | Restore | USB configuration 1, mode 2, Fn Y, autodim Y, brightness 2 |
 | Competing renderer | none |
 | Hyprland monitors after restore | eDP-1 enabled, eDP-2 disabled |
 
-Claim refused the 2008 by 60 mode. Physical touch, idle measurement, and
-suspend/resume were not run.
+2008 by 60 is the native MacBookPro16,1 surface. It is not a fallback from
+2170 by 60. Physical touch, idle measurement, and suspend/resume remain to
+be run against that size.
