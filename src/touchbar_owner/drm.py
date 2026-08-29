@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .surface import copy_logical_to_physical_scanout, test_surface_plan
-from .types import DrmCard, NATIVE_HEIGHT, NATIVE_WIDTH
+from .types import DrmCard, NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame
 
 DRM_IOCTL_BASE = ord("d")
 
@@ -164,6 +164,99 @@ def draw_test_surface(ctx, width: int, height: int) -> None:
         ctx.fill()
 
 
+def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> None:
+    if frame.surface_size != (width, height):
+        raise RuntimeError(f"frame is {frame.surface_size}, expected {(width, height)}")
+    workflow = frame.workflow_frame
+    if workflow is None:
+        draw_test_surface(ctx, width, height)
+        return
+
+    ctx.set_source_rgb(0.06, 0.08, 0.11)
+    ctx.rectangle(0, 0, width, height)
+    ctx.fill()
+
+    tile = workflow.chatgpt_tile
+    target = tile.target
+    ctx.set_source_rgb(*(0.15, 0.22, 0.32) if tile.pressed else (0.10, 0.14, 0.20))
+    ctx.rectangle(target.x, target.y, target.width, target.height)
+    ctx.fill()
+
+    if not tile.capability_available or tile.touch_cancelled:
+        ctx.set_source_rgb(0.20, 0.23, 0.28)
+    else:
+        ctx.set_source_rgb(0.31, 0.40, 0.52)
+    ctx.rectangle(target.x, target.y, target.width, target.height)
+    ctx.stroke()
+
+    _draw_logo_box(ctx, tile.logo_box)
+    _draw_status_sign(ctx, tile.status_box, str(tile.status_sign))
+
+    reserved = workflow.reserved_center
+    ctx.set_source_rgb(0.08, 0.10, 0.14)
+    ctx.rectangle(reserved.x, reserved.y, reserved.width, reserved.height)
+    ctx.fill()
+
+
+def _draw_logo_box(ctx, box) -> None:
+    ctx.set_source_rgb(0.18, 0.24, 0.32)
+    ctx.rectangle(box.x, box.y, box.width, box.height)
+    ctx.fill()
+    ctx.set_source_rgb(0.54, 0.68, 0.80)
+    ctx.select_font_face("Sans")
+    ctx.set_font_size(18)
+    _show_centered_text(ctx, "C", box.x, box.y, box.width, box.height)
+
+
+def _draw_status_sign(ctx, box, sign: str) -> None:
+    color = {
+        "dot": (0.41, 0.46, 0.54),
+        "arrow": (0.54, 0.68, 0.80),
+        "check": (0.64, 0.75, 0.55),
+        "pending": (0.92, 0.80, 0.55),
+        "bang": (0.75, 0.38, 0.42),
+    }.get(sign, (0.41, 0.46, 0.54))
+    ctx.set_source_rgb(*color)
+    cx = box.x + box.width / 2
+    cy = box.y + box.height / 2
+    radius = min(box.width, box.height) * 0.28
+    if sign == "arrow":
+        ctx.move_to(cx - radius, cy - radius)
+        ctx.line_to(cx + radius, cy)
+        ctx.line_to(cx - radius, cy + radius)
+        ctx.close_path()
+        ctx.fill()
+    elif sign == "check":
+        ctx.set_line_width(3)
+        ctx.move_to(cx - radius, cy)
+        ctx.line_to(cx - radius * 0.25, cy + radius * 0.65)
+        ctx.line_to(cx + radius, cy - radius * 0.75)
+        ctx.stroke()
+    elif sign == "pending":
+        ctx.set_line_width(3)
+        ctx.arc(cx, cy, radius, 0.0, 5.0)
+        ctx.stroke()
+    elif sign == "bang":
+        ctx.set_line_width(3)
+        ctx.move_to(cx, cy - radius)
+        ctx.line_to(cx, cy + radius * 0.35)
+        ctx.stroke()
+        ctx.arc(cx, cy + radius * 0.85, 1.5, 0.0, 6.283)
+        ctx.fill()
+    else:
+        ctx.arc(cx, cy, radius, 0.0, 6.283)
+        ctx.fill()
+
+
+def _show_centered_text(ctx, text: str, x: int, y: int, width: int, height: int) -> None:
+    extents = ctx.text_extents(text)
+    ctx.move_to(
+        x + (width - extents.width) / 2 - extents.x_bearing,
+        y + (height - extents.height) / 2 - extents.y_bearing,
+    )
+    ctx.show_text(text)
+
+
 def copy_drm_mode(mode: drmModeModeInfo) -> drmModeModeInfo:
     copied = drmModeModeInfo()
     ctypes.memmove(ctypes.byref(copied), ctypes.byref(mode), ctypes.sizeof(drmModeModeInfo))
@@ -299,6 +392,18 @@ class LiveDisplaySession:
         return self.card.logical_size
 
     def present_test_surface(self) -> None:
+        self._draw_to_scanout(
+            lambda ctx, width, height: draw_test_surface(ctx, width, height),
+            "test surface",
+        )
+
+    def present_frame(self, frame: RuntimeFrame) -> None:
+        self._draw_to_scanout(
+            lambda ctx, width, height: draw_runtime_frame(ctx, width, height, frame),
+            "runtime frame",
+        )
+
+    def _draw_to_scanout(self, draw, description: str) -> None:
         if self.closed:
             raise RuntimeError("display already closed")
         width, height = self.size
@@ -307,10 +412,10 @@ class LiveDisplaySession:
         try:
             import cairo
         except ImportError as exc:
-            raise RuntimeError("python-cairo is required to draw the test surface") from exc
+            raise RuntimeError(f"python-cairo is required to draw the {description}") from exc
         surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
         ctx = cairo.Context(surface)
-        draw_test_surface(ctx, width, height)
+        draw(ctx, width, height)
         surface.flush()
         src = surface.get_data()
         stride = surface.get_stride()
@@ -345,9 +450,9 @@ class LiveDisplaySession:
         )
         print(f"drmModeDirtyFB={dirty} drmModeSetCrtc={crtc}", flush=True)
         if dirty != 0:
-            raise RuntimeError(f"drmModeDirtyFB failed while presenting the test surface: {dirty}")
+            raise RuntimeError(f"drmModeDirtyFB failed while presenting the {description}: {dirty}")
         if crtc != 0:
-            raise RuntimeError(f"drmModeSetCrtc failed while presenting the test surface: {crtc}")
+            raise RuntimeError(f"drmModeSetCrtc failed while presenting the {description}: {crtc}")
 
     def close(self) -> None:
         if self.closed:

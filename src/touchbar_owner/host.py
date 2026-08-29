@@ -14,6 +14,7 @@ from .types import (
     OBSERVED_BASELINE,
     DrmCard,
     FirmwareRow,
+    RuntimeFrame,
     TouchDevice,
     TouchEvent,
 )
@@ -43,6 +44,7 @@ class DisplaySession(Protocol):
     @property
     def size(self) -> tuple[int, int]: ...
     def present_test_surface(self) -> None: ...
+    def present_frame(self, frame: RuntimeFrame) -> None: ...
     def close(self) -> None: ...
 
 
@@ -60,11 +62,13 @@ class FakeDisplaySession:
         self,
         card: DrmCard,
         presented: list[tuple[int, int]],
+        presented_frames: list[RuntimeFrame],
         closed_sessions: list[str],
         name: str = "display",
     ) -> None:
         self._card = card
         self._presented = presented
+        self._presented_frames = presented_frames
         self._closed_sessions = closed_sessions
         self._name = name
         self.closed = False
@@ -77,6 +81,13 @@ class FakeDisplaySession:
         if self.closed:
             raise RuntimeError("display already closed")
         self._presented.append(self.size)
+
+    def present_frame(self, frame: RuntimeFrame) -> None:
+        if self.closed:
+            raise RuntimeError("display already closed")
+        if frame.surface_size != self.size:
+            raise RuntimeError(f"frame is {frame.surface_size}, expected {self.size}")
+        self._presented_frames.append(frame)
 
     def close(self) -> None:
         if not self.closed:
@@ -133,6 +144,7 @@ class FakeHost:
     appletbdrm_loaded: bool = False
     opened_drm_cards: list[str] = field(default_factory=list)
     presented_surfaces: list[tuple[int, int]] = field(default_factory=list)
+    presented_frames: list[RuntimeFrame] = field(default_factory=list)
     queued_touch_events: list[TouchEvent] = field(default_factory=list)
     closed_sessions: list[str] = field(default_factory=list)
     operations: list[str] = field(default_factory=list)
@@ -259,7 +271,12 @@ class FakeHost:
         if card.driver != "appletbdrm":
             raise RuntimeError("refusing non-touchbar DRM card")
         self.record_opened_drm(card)
-        session = FakeDisplaySession(card, self.presented_surfaces, self.closed_sessions)
+        session = FakeDisplaySession(
+            card,
+            self.presented_surfaces,
+            self.presented_frames,
+            self.closed_sessions,
+        )
         self._display = session
         return session
 

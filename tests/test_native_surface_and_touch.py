@@ -11,12 +11,14 @@ from touchbar_owner.types import NATIVE_HEIGHT, NATIVE_WIDTH, TouchEvent
 
 
 class NativeSurfaceAndTouchTests(unittest.TestCase):
-    def test_claim_presents_a_stable_2008_by_60_test_surface(self) -> None:
+    def test_claim_acquires_display_before_explicit_test_surface_presentation(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
             owner = TouchBarOwner(host)
             owner.claim()
             try:
+                self.assertEqual(host.presented_surfaces, [])
+                owner.present_test_surface()
                 self.assertEqual(host.presented_surfaces, [(NATIVE_WIDTH, NATIVE_HEIGHT)])
                 self.assertEqual(host.opened_drm_cards, ["/dev/dri/card3"])
             finally:

@@ -104,6 +104,7 @@ class RuntimeFrame:
     surface_size: tuple[int, int]
     touch_count: int
     last_touch: TouchEvent | None
+    workflow_frame: object | None = None
 
 
 @dataclass(frozen=True)

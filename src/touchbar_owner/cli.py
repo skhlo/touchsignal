@@ -8,12 +8,15 @@ import sys
 import time
 from pathlib import Path
 
+from .chatgpt import ChatGPTActions, HyprlandSource, LiveHyprlandChatGPTAdapter
 from .discovery import competing_renderer_names, find_touchbar_usb, list_drm_cards, read_firmware_row
+from .host import Host
 from .live import LiveHost
 from .owner import OwnerError, TouchBarOwner
 from .restore import restore_firmware_row
 from .runtime import PreflightError, SupervisedRuntime, SupervisedRuntimeError
 from .types import OBSERVED_BASELINE, firmware_row_restored
+from .workflow import ChatGPTWorkflow, WorkflowRenderer
 
 
 def _print_row(row) -> None:
@@ -102,6 +105,7 @@ def cmd_claim(args: argparse.Namespace) -> int:
     seen: list[str] = []
     rc = 0
     try:
+        owner.present_test_surface()
         while time.monotonic() < deadline and not stop["value"]:
             events = owner.drain_touch()
             for event in events:
@@ -170,9 +174,25 @@ def cmd_preflight(_args: argparse.Namespace) -> int:
     return 0
 
 
+def build_product_runtime(
+    host: Host,
+    *,
+    restart_delay: float,
+    source: HyprlandSource | None = None,
+    actions: ChatGPTActions | None = None,
+) -> SupervisedRuntime:
+    adapter = LiveHyprlandChatGPTAdapter()
+    workflow = ChatGPTWorkflow(source or adapter, actions or adapter)
+    return SupervisedRuntime(
+        host,
+        renderer=WorkflowRenderer(workflow),
+        restart_delay=restart_delay,
+    )
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     host = LiveHost()
-    runtime = SupervisedRuntime(host, restart_delay=args.restart_delay)
+    runtime = build_product_runtime(host, restart_delay=args.restart_delay)
     stop = {"value": False}
 
     def handle_stop(_signum: int, _frame: object) -> None:
