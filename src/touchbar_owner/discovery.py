@@ -8,7 +8,7 @@ from .types import (
     USB_VENDOR,
     DrmCard,
     FirmwareRow,
-    TouchDevice,
+    InputDevice,
 )
 
 
@@ -16,25 +16,67 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace").strip()
 
 
-def parse_input_devices(text: str) -> list[TouchDevice]:
-    devices: list[TouchDevice] = []
+def parse_input_devices(text: str) -> list[InputDevice]:
+    devices: list[InputDevice] = []
     for block in text.strip().split("\n\n"):
         name = ""
         handler = ""
+        bus = ""
+        vendor = ""
+        product = ""
+        sysfs = ""
+        key_codes: frozenset[int] = frozenset()
         for line in block.splitlines():
-            if line.startswith("N: Name="):
+            if line.startswith("I: "):
+                identity = {}
+                for token in line[3:].split():
+                    if "=" in token:
+                        key, value = token.split("=", 1)
+                        identity[key.casefold()] = value
+                bus = identity.get("bus", "")
+                vendor = identity.get("vendor", "")
+                product = identity.get("product", "")
+            elif line.startswith("N: Name="):
                 name = line.split("=", 1)[1].strip().strip('"')
+            elif line.startswith("S: Sysfs="):
+                sysfs = line.split("=", 1)[1].strip()
             elif line.startswith("H: Handlers="):
                 for token in line.split("=", 1)[1].split():
                     if token.startswith("event"):
                         handler = token
                         break
+            elif line.startswith("B: KEY="):
+                key_codes = _parse_key_bitmap(line.split("=", 1)[1])
         if name and handler:
-            devices.append(TouchDevice(name=name, path=f"/dev/input/{handler}"))
+            devices.append(
+                InputDevice(
+                    name=name,
+                    path=f"/dev/input/{handler}",
+                    bus=bus,
+                    vendor=vendor,
+                    product=product,
+                    sysfs=sysfs,
+                    key_codes=key_codes,
+                )
+            )
     return devices
 
 
-def list_input_devices(root: Path | None = None) -> list[TouchDevice]:
+def _parse_key_bitmap(raw: str) -> frozenset[int]:
+    codes: set[int] = set()
+    for word_index, token in enumerate(reversed(raw.split())):
+        try:
+            word = int(token, 16)
+        except ValueError:
+            return frozenset()
+        while word:
+            bit = (word & -word).bit_length() - 1
+            codes.add(word_index * 64 + bit)
+            word &= word - 1
+    return frozenset(codes)
+
+
+def list_input_devices(root: Path | None = None) -> list[InputDevice]:
     path = (root / "proc/bus/input/devices") if root else Path("/proc/bus/input/devices")
     return parse_input_devices(path.read_text(encoding="utf-8", errors="replace"))
 

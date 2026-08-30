@@ -13,9 +13,12 @@ from .types import (
     NATIVE_WIDTH,
     OBSERVED_BASELINE,
     DrmCard,
+    FnEvent,
     FirmwareRow,
+    KEY_FN,
+    MediaAction,
     RuntimeFrame,
-    TouchDevice,
+    InputDevice,
     TouchEvent,
 )
 
@@ -29,15 +32,16 @@ class Host(Protocol):
     def baseline_firmware_row(self) -> FirmwareRow: ...
     def competing_renderers(self) -> tuple[str, ...]: ...
     def list_drm_cards(self) -> list[DrmCard]: ...
-    def list_touch_devices(self) -> list[TouchDevice]: ...
+    def list_input_devices(self) -> list[InputDevice]: ...
     def attach_display(self) -> DrmCard: ...
     def restore_firmware_row(self) -> FirmwareRow: ...
     def acquire_lock(self) -> None: ...
     def release_lock(self) -> None: ...
     def open_display(self, card: DrmCard) -> DisplaySession: ...
-    def open_touch(self, device: TouchDevice) -> TouchSession: ...
+    def open_touch(self, device: InputDevice) -> TouchSession: ...
+    def open_fn_input(self, device: InputDevice) -> FnSession: ...
     def open_backlight(self) -> ResourceSession: ...
-    def open_virtual_input(self) -> ResourceSession: ...
+    def open_virtual_keyboard(self) -> VirtualKeyboardSession: ...
 
 
 class DisplaySession(Protocol):
@@ -50,6 +54,18 @@ class DisplaySession(Protocol):
 
 class TouchSession(Protocol):
     def read_events(self, timeout: float = 0.0) -> list[TouchEvent]: ...
+    def close(self) -> None: ...
+
+
+class FnSession(Protocol):
+    def read_events(self, timeout: float = 0.0) -> list[FnEvent]: ...
+
+    def close(self) -> None: ...
+
+
+class VirtualKeyboardSession(Protocol):
+    def emit(self, action: MediaAction) -> None: ...
+
     def close(self) -> None: ...
 
 
@@ -133,6 +149,46 @@ class FakeResourceSession:
         self.closed = True
 
 
+class FakeFnSession:
+    def __init__(self, queued: list[FnEvent], closed_sessions: list[str]) -> None:
+        self._queued = queued
+        self._closed_sessions = closed_sessions
+        self.closed = False
+
+    def read_events(self, timeout: float = 0.0) -> list[FnEvent]:
+        if self.closed:
+            raise RuntimeError("Fn input already closed")
+        events = list(self._queued)
+        self._queued.clear()
+        return events
+
+    def close(self) -> None:
+        if not self.closed:
+            self._closed_sessions.append("fn_input")
+        self.closed = True
+
+
+class FakeVirtualKeyboardSession:
+    def __init__(
+        self,
+        emitted: list[MediaAction],
+        closed_sessions: list[str],
+    ) -> None:
+        self._emitted = emitted
+        self._closed_sessions = closed_sessions
+        self.closed = False
+
+    def emit(self, action: MediaAction) -> None:
+        if self.closed:
+            raise RuntimeError("virtual keyboard already closed")
+        self._emitted.append(action)
+
+    def close(self) -> None:
+        if not self.closed:
+            self._closed_sessions.append("virtual_keyboard")
+        self.closed = True
+
+
 @dataclass
 class FakeHost:
     root: Path
@@ -154,13 +210,16 @@ class FakeHost:
     presented_frames: list[RuntimeFrame] = field(default_factory=list)
     queued_touch_events: list[TouchEvent] = field(default_factory=list)
     touch_read_timeouts: list[float] = field(default_factory=list)
+    queued_fn_events: list[FnEvent] = field(default_factory=list)
+    emitted_media_actions: list[MediaAction] = field(default_factory=list)
     closed_sessions: list[str] = field(default_factory=list)
     operations: list[str] = field(default_factory=list)
     _lock_fd: int | None = None
     _display: FakeDisplaySession | None = None
     _touch: FakeTouchSession | None = None
+    _fn_input: FakeFnSession | None = None
     _backlight: FakeResourceSession | None = None
-    _virtual_input: FakeResourceSession | None = None
+    _virtual_keyboard: FakeVirtualKeyboardSession | None = None
 
     def __post_init__(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -212,13 +271,21 @@ class FakeHost:
             )
         return cards
 
-    def list_touch_devices(self) -> list[TouchDevice]:
+    def list_input_devices(self) -> list[InputDevice]:
         devices = [
-            TouchDevice("Apple Inc. Touch Bar Display", "/dev/input/event7"),
+            InputDevice("Apple Inc. Touch Bar Display", "/dev/input/event7"),
+            InputDevice(
+                "Apple Inc. Apple Internal Keyboard / Trackpad",
+                "/dev/input/event5",
+                bus="0003",
+                vendor="05ac",
+                product="0340",
+                key_codes=frozenset({KEY_FN}),
+            ),
         ]
         if self.usb_configuration == DRM_CONFIG:
             devices.append(
-                TouchDevice(
+                InputDevice(
                     "Apple Inc. Touch Bar Display Touchpad",
                     "/dev/input/event20",
                 )
@@ -288,7 +355,7 @@ class FakeHost:
         self._display = session
         return session
 
-    def open_touch(self, device: TouchDevice) -> FakeTouchSession:
+    def open_touch(self, device: InputDevice) -> FakeTouchSession:
         if not device.is_touchbar_digitizer:
             raise RuntimeError("firmware keyboard is not a touch surface")
         session = FakeTouchSession(
@@ -304,7 +371,17 @@ class FakeHost:
         self._backlight = session
         return session
 
-    def open_virtual_input(self) -> FakeResourceSession:
-        session = FakeResourceSession(self.closed_sessions, "virtual_input")
-        self._virtual_input = session
+    def open_fn_input(self, device: InputDevice) -> FakeFnSession:
+        if not device.is_internal_keyboard:
+            raise RuntimeError("input device is not the Apple internal KEY_FN keyboard")
+        session = FakeFnSession(self.queued_fn_events, self.closed_sessions)
+        self._fn_input = session
+        return session
+
+    def open_virtual_keyboard(self) -> FakeVirtualKeyboardSession:
+        session = FakeVirtualKeyboardSession(
+            self.emitted_media_actions,
+            self.closed_sessions,
+        )
+        self._virtual_keyboard = session
         return session

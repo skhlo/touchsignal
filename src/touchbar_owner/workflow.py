@@ -23,7 +23,14 @@ from .thermal import (
     ThermalSource,
     temperature_band,
 )
-from .types import NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame, TouchEvent
+from .types import (
+    NATIVE_HEIGHT,
+    NATIVE_WIDTH,
+    RuntimeFrame,
+    RuntimeInput,
+    RuntimeResult,
+    TouchEvent,
+)
 
 
 BUTTON_ONE_GLYPH = "󱚣"
@@ -254,6 +261,15 @@ class ChatGPTWorkflow:
         self._settle_pending()
         self._settle_timed_out_request()
 
+    def cancel_contacts(self) -> None:
+        self.press = None
+
+    def refresh_verified_state(self) -> None:
+        fresh_snapshot = getattr(self.source, "fresh_snapshot", self.source.snapshot)
+        self.last_snapshot = fresh_snapshot()
+        self._settle_pending()
+        self._settle_timed_out_request()
+
     def frame(self) -> WorkflowFrame:
         self.refresh()
         state = self._presentation_state()
@@ -381,13 +397,16 @@ class WorkflowRenderer:
     def __init__(self, workflow: RenderableWorkflow) -> None:
         self.workflow = workflow
 
-    def render(self, touches: list[TouchEvent]) -> RuntimeFrame:
+    def render(self, runtime_input: RuntimeInput) -> RuntimeResult:
+        touches = list(runtime_input.touches)
         self.workflow.process_touch_events(touches)
-        return RuntimeFrame(
-            surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
-            touch_count=len(touches),
-            last_touch=touches[-1] if touches else None,
-            workflow_frame=self.workflow.frame(),
+        return RuntimeResult(
+            frame=RuntimeFrame(
+                surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
+                touch_count=len(touches),
+                last_touch=touches[-1] if touches else None,
+                workflow_frame=self.workflow.frame(),
+            )
         )
 
 
@@ -540,6 +559,24 @@ class HerdrWorkflow:
                 self._last_selected = _selected_workspaces(self.last_snapshot)
         if self._thermal_source is not None:
             self.last_thermal_snapshot = self._thermal_source.snapshot()
+        self._settle_pending()
+        self._settle_timed_out_request()
+        self._settle_failed_request()
+
+    def cancel_contacts(self) -> None:
+        self.press = None
+        if self._chatgpt is not None:
+            self._chatgpt.cancel_contacts()
+
+    def refresh_verified_state(self) -> None:
+        self.last_snapshot = self.source.snapshot()
+        if self.last_snapshot.available:
+            self._last_selected = _selected_workspaces(self.last_snapshot)
+        else:
+            self._last_selected = ()
+        self._refresh_requested = False
+        if self._chatgpt is not None:
+            self._chatgpt.refresh_verified_state()
         self._settle_pending()
         self._settle_timed_out_request()
         self._settle_failed_request()

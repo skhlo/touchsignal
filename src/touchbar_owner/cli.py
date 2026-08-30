@@ -17,8 +17,13 @@ from .owner import OwnerError, TouchBarOwner
 from .restore import restore_firmware_row
 from .runtime import PreflightError, SupervisedRuntime, SupervisedRuntimeError
 from .thermal import LiveThermalAdapter, ThermalSource
+from .system_layer import (
+    LiveOmarchyLockSource,
+    LockStateSource,
+    SystemLayerWorkflow,
+)
 from .types import OBSERVED_BASELINE, firmware_row_restored
-from .workflow import ChatGPTWorkflow, HerdrWorkflow, WorkflowRenderer
+from .workflow import ChatGPTWorkflow, HerdrWorkflow
 
 
 def _print_row(row) -> None:
@@ -185,6 +190,7 @@ def build_product_runtime(
     herdr_source: HerdrSource | None = None,
     herdr_actions: HerdrActions | None = None,
     thermal_source: ThermalSource | None = None,
+    lock_source: LockStateSource | None = None,
 ) -> SupervisedRuntime:
     adapter = LiveHyprlandChatGPTAdapter()
     chatgpt = ChatGPTWorkflow(source or adapter, actions or adapter)
@@ -198,7 +204,10 @@ def build_product_runtime(
     )
     return SupervisedRuntime(
         host,
-        renderer=WorkflowRenderer(herdr),
+        renderer=SystemLayerWorkflow(
+            herdr,
+            lock_source or LiveOmarchyLockSource(),
+        ),
         restart_delay=restart_delay,
     )
 

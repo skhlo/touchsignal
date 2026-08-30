@@ -48,7 +48,7 @@ class NativeSurfaceAndTouchTests(unittest.TestCase):
             owner = TouchBarOwner(host)
             owner.claim()
             try:
-                names = [device.name for device in host.list_touch_devices()]
+                names = [device.name for device in host.list_input_devices()]
                 self.assertIn("Apple Inc. Touch Bar Display", names)
                 self.assertIn("Apple Inc. Touch Bar Display Touchpad", names)
                 events = owner.drain_touch()

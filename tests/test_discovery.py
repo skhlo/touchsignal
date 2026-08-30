@@ -33,8 +33,51 @@ B: PROP=2
 B: EV=b
 """
 
+INTERNAL_KEYBOARDS = """\
+I: Bus=0003 Vendor=05ac Product=0340 Version=0101
+N: Name="Apple Inc. Apple Internal Keyboard / Trackpad"
+P: Phys=usb-internal/input1
+S: Sysfs=/devices/apple-internal/input/input5
+U: Uniq=
+H: Handlers=sysrq kbd leds event42
+B: PROP=0
+B: EV=120013
+B: KEY=10000 0 0 0 101007b02001007 ff9f207ac14057ff ffbeffdfffefffff fffffffffffffffe
+
+I: Bus=0003 Vendor=05ac Product=0340 Version=0101
+N: Name="Apple Inc. Apple Internal Keyboard / Trackpad"
+P: Phys=usb-internal/input2
+S: Sysfs=/devices/apple-internal/input/input6
+U: Uniq=
+H: Handlers=event5 mouse0
+B: PROP=5
+B: EV=1b
+B: KEY=e520 10000 0 0 0 0
+
+I: Bus=0003 Vendor=1234 Product=0340 Version=0101
+N: Name="Apple Inc. Apple Internal Keyboard / Trackpad"
+P: Phys=external/input1
+S: Sysfs=/devices/not-apple/input/input99
+U: Uniq=
+H: Handlers=kbd event99
+B: PROP=0
+B: EV=3
+B: KEY=10000 0 0 0 0 0 0 0
+"""
+
 
 class DiscoveryTests(unittest.TestCase):
+    def test_internal_keyboard_uses_stable_apple_identity_and_key_fn_capability(self) -> None:
+        devices = parse_input_devices(INTERNAL_KEYBOARDS)
+
+        keyboards = [device for device in devices if device.is_internal_keyboard]
+
+        self.assertEqual(len(keyboards), 1)
+        self.assertEqual(keyboards[0].path, "/dev/input/event42")
+        self.assertEqual(keyboards[0].vendor, "05ac")
+        self.assertEqual(keyboards[0].product, "0340")
+        self.assertIn(0x1D0, keyboards[0].key_codes)
+
     def test_firmware_keyboard_is_not_a_digitizer(self) -> None:
         devices = parse_input_devices(INPUT_DEVICES)
         firmware = next(device for device in devices if device.path.endswith("event7"))

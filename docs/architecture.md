@@ -41,9 +41,10 @@ they initially run in one process.
 ```text
 Hyprland IPC -------> ChatGPT adapter ----+
 Herdr API ----------> Herdr adapter ------+--> normalized state --> tile model
-logind session -----> lifecycle adapter --+                         |
+Omarchy lock IPC ---> system layer -------+                         |
+internal KEY_FN ----> physical owner -----+                         |
                                                                     v
-firmware row <--- detach and fallback <-- supervisor <-- renderer and input owner
+firmware row <--- detach and fallback <-- supervisor <--------- physical owner
                                                                     |
                                                                     v
                                                     appletbdrm + touch input
@@ -51,8 +52,16 @@ firmware row <--- detach and fallback <-- supervisor <-- renderer and input owne
 
 ### Physical owner
 
-The renderer is the only module allowed to open the Touch Bar DRM device, raw
-touch input, backlight, or uinput. Adapters never receive hardware handles.
+The physical owner is the only module allowed to open the Touch Bar DRM device, raw
+touch input, backlight, internal keyboard reader, or uinput. The internal
+keyboard is discovered from its Apple USB identity and `KEY_FN` capability,
+never from an `eventN` path, and is opened read-only without an evdev grab.
+Adapters never receive hardware handles.
+
+The owner holds a modern `UI_DEV_SETUP` virtual keyboard with only the seven
+brightness, playback, and volume key capabilities. The layer workflow returns
+semantic media intents in the runtime result. The owner dispatches those
+intents as standard Linux key down, sync, key up, and sync events.
 
 The current leading implementation foundation is
 `react-drm-for-touchbar`, because it targets T2 MacBooks and already implements
@@ -283,9 +292,29 @@ the enabled user service does not race a missing `/dev/uinput` node after a
 reboot. Installation remains an explicit privileged step and removal does not
 unload the module from the current boot.
 
-When the session locks, agent labels and actions are hidden. TouchSignal shows a
-neutral media layer or blanks the panel and rejects workflow taps until the
-session unlocks.
+One system-layer workflow wraps the agent workflow. While unlocked, released Fn
+shows agents and held Fn shows seven monochrome controls: brightness down/up,
+previous, play/pause, next, and volume down/up. Media actions commit exactly
+once on release within the same forgiving boundary as workflow tiles. Any
+layer transition cancels active contacts. A touch batch that coincides with Fn
+release, lock, or unlock is discarded instead of being routed across layers;
+Fn entry may accept that batch only on the newly selected media layer.
+
+`omarchy-shell lock isLocked` is the authoritative lock source. Calls have a
+bounded process timeout and a bounded polling rate. An unlocked verdict is
+rechecked on every runtime cycle so a lock request preempts workflow input;
+only privacy-safe locked or unavailable verdicts may be cached. Locked state,
+an unavailable lock source, a timeout, and malformed output all select the same
+privacy-safe media layer. That layer has no agent-bearing frame fields. Unlock
+forces fresh Herdr and Hyprland snapshots before an agent frame can return.
+Theme, sensor, Herdr, and Hyprland failures do not sit on the media path.
+
+On-device acceptance on MacBookPro16,1 verified physical Fn press/release,
+all seven brightness, transport, and volume actions exactly once on release,
+privacy-safe locked media, removal of every workflow element while locked,
+fresh workflow state after unlock, and the native 2008 by 60 vector-icon
+presentation without clipping or jitter. The temporary test service was removed
+and the previously active TouchSignal user unit was restored byte-for-byte.
 
 ## Version 0.1 acceptance gates
 
