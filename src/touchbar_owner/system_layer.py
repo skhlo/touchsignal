@@ -20,15 +20,6 @@ from .workflow import TOUCH_SLOP, Geometry
 
 
 MEDIA_ACTIONS = tuple(MediaAction)
-MEDIA_LABELS = {
-    MediaAction.BRIGHTNESS_DOWN: "BRIGHT -",
-    MediaAction.BRIGHTNESS_UP: "BRIGHT +",
-    MediaAction.PREVIOUS: "PREVIOUS",
-    MediaAction.PLAY_PAUSE: "PLAY / PAUSE",
-    MediaAction.NEXT: "NEXT",
-    MediaAction.VOLUME_DOWN: "VOLUME -",
-    MediaAction.VOLUME_UP: "VOLUME +",
-}
 MEDIA_TARGET_HEIGHT = 46
 MEDIA_TARGET_GAP = 4
 MEDIA_TARGET_MARGIN = 4

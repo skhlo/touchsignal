@@ -136,6 +136,10 @@ class RecordingContext:
     texts: list[str] = field(default_factory=list)
     colors: list[tuple[float, float, float]] = field(default_factory=list)
     masks: list[tuple[object, int, int]] = field(default_factory=list)
+    moves: list[tuple[float, float]] = field(default_factory=list)
+    lines: list[tuple[float, float]] = field(default_factory=list)
+    arcs: list[tuple[float, float, float, float, float]] = field(default_factory=list)
+    stroke_count: int = 0
 
     def set_source_rgb(self, red: float, green: float, blue: float) -> None:
         self.colors.append((red, green, blue))
@@ -149,6 +153,25 @@ class RecordingContext:
     def show_text(self, text: str) -> None:
         self.texts.append(text)
 
+    def move_to(self, x: float, y: float) -> None:
+        self.moves.append((x, y))
+
+    def line_to(self, x: float, y: float) -> None:
+        self.lines.append((x, y))
+
+    def arc(
+        self,
+        x: float,
+        y: float,
+        radius: float,
+        start: float,
+        end: float,
+    ) -> None:
+        self.arcs.append((x, y, radius, start, end))
+
+    def stroke(self) -> None:
+        self.stroke_count += 1
+
     def mask_surface(self, surface: object, x: int, y: int) -> None:
         self.masks.append((surface, x, y))
 
@@ -157,7 +180,7 @@ class RecordingContext:
 
 
 class MediaLayerRendererTests(unittest.TestCase):
-    def test_media_layer_draws_seven_monochrome_labeled_buttons(self) -> None:
+    def test_media_layer_draws_seven_monochrome_vector_icons(self) -> None:
         layer = MediaLayerFrame(
             surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
             buttons=tuple(
@@ -189,18 +212,10 @@ class MediaLayerRendererTests(unittest.TestCase):
                 ),
                 context.rectangles,
             )
-        self.assertEqual(
-            context.texts,
-            [
-                "BRIGHT -",
-                "BRIGHT +",
-                "PREVIOUS",
-                "PLAY / PAUSE",
-                "NEXT",
-                "VOLUME -",
-                "VOLUME +",
-            ],
-        )
+        self.assertEqual(context.texts, [])
+        self.assertGreaterEqual(len(context.lines), 20)
+        self.assertGreaterEqual(len(context.arcs), 2)
+        self.assertGreaterEqual(context.stroke_count, 7)
         self.assertEqual(set(context.colors), {PANEL_BACKGROUND, LIGHT_INK})
 
 
