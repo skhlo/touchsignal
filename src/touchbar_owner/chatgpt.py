@@ -113,6 +113,10 @@ class LiveHyprlandChatGPTAdapter:
         self._snapshot_at = self.clock()
         return snapshot
 
+    def fresh_snapshot(self) -> HyprlandSnapshot:
+        self._snapshot_at = None
+        return self.snapshot()
+
     def request_focus(self, client: HyprlandClient) -> None:
         subprocess.run(
             ["hyprctl", "dispatch", "focuswindow", f"address:{client.address}"],

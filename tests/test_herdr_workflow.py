@@ -27,7 +27,21 @@ from touchbar_owner.herdr import (
     HerdrWorkspace,
     resolve_herdr_socket_path,
 )
-from touchbar_owner.types import NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame, TouchEvent
+from touchbar_owner.system_layer import (
+    LockState,
+    MEDIA_ACTIONS,
+    MediaButtonFrame,
+    MediaLayerFrame,
+    SystemLayerWorkflow,
+    media_target_geometry,
+)
+from touchbar_owner.types import (
+    NATIVE_HEIGHT,
+    NATIVE_WIDTH,
+    RuntimeFrame,
+    RuntimeInput,
+    TouchEvent,
+)
 from touchbar_owner.workflow import (
     CHATGPT_TARGET_WIDTH,
     HERDR_SLOT_COUNT,
@@ -122,6 +136,10 @@ class RecordingContext:
     texts: list[str] = field(default_factory=list)
     colors: list[tuple[float, float, float]] = field(default_factory=list)
     masks: list[tuple[object, int, int]] = field(default_factory=list)
+    moves: list[tuple[float, float]] = field(default_factory=list)
+    lines: list[tuple[float, float]] = field(default_factory=list)
+    arcs: list[tuple[float, float, float, float, float]] = field(default_factory=list)
+    stroke_count: int = 0
 
     def set_source_rgb(self, red: float, green: float, blue: float) -> None:
         self.colors.append((red, green, blue))
@@ -135,11 +153,70 @@ class RecordingContext:
     def show_text(self, text: str) -> None:
         self.texts.append(text)
 
+    def move_to(self, x: float, y: float) -> None:
+        self.moves.append((x, y))
+
+    def line_to(self, x: float, y: float) -> None:
+        self.lines.append((x, y))
+
+    def arc(
+        self,
+        x: float,
+        y: float,
+        radius: float,
+        start: float,
+        end: float,
+    ) -> None:
+        self.arcs.append((x, y, radius, start, end))
+
+    def stroke(self) -> None:
+        self.stroke_count += 1
+
     def mask_surface(self, surface: object, x: int, y: int) -> None:
         self.masks.append((surface, x, y))
 
     def __getattr__(self, _name: str) -> Callable[..., None]:
         return lambda *_args, **_kwargs: None
+
+
+class MediaLayerRendererTests(unittest.TestCase):
+    def test_media_layer_draws_seven_monochrome_vector_icons(self) -> None:
+        layer = MediaLayerFrame(
+            surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
+            buttons=tuple(
+                MediaButtonFrame(action, media_target_geometry(index))
+                for index, action in enumerate(MEDIA_ACTIONS)
+            ),
+        )
+        context = RecordingContext()
+
+        draw_runtime_frame(
+            context,
+            NATIVE_WIDTH,
+            NATIVE_HEIGHT,
+            RuntimeFrame(
+                surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
+                touch_count=0,
+                last_touch=None,
+                workflow_frame=layer,
+            ),
+        )
+
+        for button in layer.buttons:
+            self.assertIn(
+                (
+                    button.target.x,
+                    button.target.y,
+                    button.target.width,
+                    button.target.height,
+                ),
+                context.rectangles,
+            )
+        self.assertEqual(context.texts, [])
+        self.assertGreaterEqual(len(context.lines), 20)
+        self.assertGreaterEqual(len(context.arcs), 2)
+        self.assertGreaterEqual(context.stroke_count, 7)
+        self.assertEqual(set(context.colors), {PANEL_BACKGROUND, LIGHT_INK})
 
 
 def make_workspace(
@@ -616,6 +693,37 @@ class HerdrFocusActionTests(unittest.TestCase):
 
 
 class HerdrTopologyRefreshTests(unittest.TestCase):
+    def test_unlock_forces_snapshot_and_drops_unverified_prelock_identity(self) -> None:
+        class MutableLockSource:
+            current = LockState.UNLOCKED
+
+            def state(self) -> LockState:
+                return self.current
+
+        workspace, pane = make_workspace(1, agent="codex")
+        agents, source, _actions = herdr_workflow(
+            make_snapshot([(workspace, pane)])
+        )
+        lock = MutableLockSource()
+        workflow = SystemLayerWorkflow(agents, lock)
+        first = workflow.render(RuntimeInput()).frame.workflow_frame
+        assert isinstance(first, WorkflowFrame)
+        self.assertEqual(first.herdr_tiles[0].agent_identity, "codex")
+
+        lock.current = LockState.LOCKED
+        workflow.render(RuntimeInput())
+        source.current = HerdrSnapshot.unavailable()
+        snapshots_before_unlock = source.snapshot_count
+
+        lock.current = LockState.UNLOCKED
+        unlocked = workflow.render(RuntimeInput()).frame.workflow_frame
+
+        self.assertGreater(source.snapshot_count, snapshots_before_unlock)
+        self.assertIsInstance(unlocked, WorkflowFrame)
+        assert isinstance(unlocked, WorkflowFrame)
+        self.assertEqual(unlocked.herdr_tiles, ())
+        self.assertNotIn("codex", repr(unlocked))
+
     def test_source_change_takes_fresh_authoritative_snapshot(self) -> None:
         first, first_pane = make_workspace(1, agent="codex")
         second, second_pane = make_workspace(2, agent="claude")

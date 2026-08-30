@@ -14,9 +14,10 @@ from .types import (
     NATIVE_WIDTH,
     RuntimeAction,
     RuntimeFrame,
+    RuntimeInput,
+    RuntimeResult,
     RuntimeState,
     SUPPORTED_HARDWARE_MODEL,
-    TouchEvent,
     firmware_row_restored,
 )
 
@@ -30,16 +31,18 @@ class PreflightError(RuntimeError):
 
 
 class Renderer(Protocol):
-    def render(self, touches: list[TouchEvent]) -> RuntimeFrame: ...
+    def render(self, runtime_input: RuntimeInput) -> RuntimeResult: ...
 
 
 class ProofRenderer:
-    def render(self, touches: list[TouchEvent]) -> RuntimeFrame:
-        last_touch = touches[-1] if touches else None
-        return RuntimeFrame(
-            surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
-            touch_count=len(touches),
-            last_touch=last_touch,
+    def render(self, runtime_input: RuntimeInput) -> RuntimeResult:
+        last_touch = runtime_input.touches[-1] if runtime_input.touches else None
+        return RuntimeResult(
+            frame=RuntimeFrame(
+                surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
+                touch_count=len(runtime_input.touches),
+                last_touch=last_touch,
+            )
         )
 
 
@@ -102,7 +105,7 @@ class SupervisedRuntime:
         self._last_presented_frame = None
         self.state.running = True
         try:
-            self._record_frame([])
+            self._record_result(RuntimeInput())
         except Exception:
             self.stop()
             raise
@@ -113,12 +116,9 @@ class SupervisedRuntime:
         if not self.host.graphical_session_ready():
             self.stop()
             return
-        touches = self._owner.drain_touch()
-        self.state.touch_events.extend(touches)
-        self._record_frame(touches)
-        for touch in touches:
-            if touch.kind == "up":
-                self.state.actions.append(RuntimeAction("proof-touch-release", touch))
+        runtime_input = self._owner.drain_input()
+        self.state.touch_events.extend(runtime_input.touches)
+        self._record_result(runtime_input)
 
     def stop(self) -> None:
         owner = self._owner
@@ -155,19 +155,23 @@ class SupervisedRuntime:
         except SupervisedRuntimeError as exc:
             self.state.failures.append(str(exc))
 
-    def _record_frame(self, touches: list[TouchEvent]) -> None:
+    def _record_result(self, runtime_input: RuntimeInput) -> None:
         if self._owner is None:
             raise SupervisedRuntimeError("runtime is not running")
-        frame = self.renderer.render(touches)
+        result = self.renderer.render(runtime_input)
+        frame = result.frame
         if not _same_visual_frame(frame, self._last_presented_frame):
             self._owner.present_frame(frame)
             self._last_presented_frame = frame
             self.state.frames.append(frame)
-            return
-        if self.state.frames:
+        elif self.state.frames:
             self.state.frames[-1] = frame
         else:
             self.state.frames.append(frame)
+        last_touch = runtime_input.touches[-1] if runtime_input.touches else None
+        for intent in result.intents:
+            self._owner.dispatch_media_action(intent)
+            self.state.actions.append(RuntimeAction(intent.value, last_touch))
 
 
 def _same_visual_frame(

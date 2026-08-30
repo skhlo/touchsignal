@@ -3,13 +3,15 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import fcntl
+import math
 import mmap
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from .surface import copy_logical_to_physical_scanout, test_surface_plan
-from .types import DrmCard, NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame
+from .system_layer import MediaLayerFrame
+from .types import DrmCard, MediaAction, NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame
 
 DRM_IOCTL_BASE = ord("d")
 
@@ -221,6 +223,11 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
     ctx.rectangle(0, 0, width, height)
     ctx.fill()
 
+    if isinstance(workflow, MediaLayerFrame):
+        for button in workflow.buttons:
+            _draw_media_button(ctx, button)
+        return
+
     tile = workflow.chatgpt_tile
     target = tile.target
     background, identity_ink = _tile_contrast(
@@ -251,6 +258,116 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
         ctx.set_source_rgb(*PANEL_BACKGROUND)
         ctx.rectangle(reserved.x, reserved.y, reserved.width, reserved.height)
         ctx.fill()
+
+
+def _draw_media_button(ctx, button) -> None:
+    target = button.target
+    background = TILE_PRESSED_BACKGROUND if button.pressed else PANEL_BACKGROUND
+    ctx.set_source_rgb(*background)
+    ctx.rectangle(target.x, target.y, target.width, target.height)
+    ctx.fill()
+    ctx.set_source_rgb(*LIGHT_INK)
+    ctx.set_line_width(3)
+    _draw_media_icon(ctx, button.action, target)
+
+
+def _draw_media_icon(ctx, action: MediaAction, target) -> None:
+    center_x = target.x + target.width / 2
+    center_y = target.y + target.height / 2
+    if action in {MediaAction.BRIGHTNESS_DOWN, MediaAction.BRIGHTNESS_UP}:
+        _draw_sun(ctx, center_x - 10, center_y)
+        _draw_modifier(
+            ctx,
+            center_x + 18,
+            center_y,
+            plus=action == MediaAction.BRIGHTNESS_UP,
+        )
+    elif action == MediaAction.PREVIOUS:
+        _draw_skip(ctx, center_x, center_y, direction=-1)
+    elif action == MediaAction.PLAY_PAUSE:
+        _draw_play_pause(ctx, center_x, center_y)
+    elif action == MediaAction.NEXT:
+        _draw_skip(ctx, center_x, center_y, direction=1)
+    elif action in {MediaAction.VOLUME_DOWN, MediaAction.VOLUME_UP}:
+        _draw_speaker(ctx, center_x - 7, center_y)
+        _draw_modifier(
+            ctx,
+            center_x + 20,
+            center_y,
+            plus=action == MediaAction.VOLUME_UP,
+        )
+
+
+def _draw_sun(ctx, center_x: float, center_y: float) -> None:
+    radius = 7
+    ctx.arc(center_x, center_y, radius, 0, math.tau)
+    ctx.stroke()
+    for index in range(8):
+        angle = index * math.tau / 8
+        inner = radius + 4
+        outer = radius + 9
+        ctx.move_to(
+            center_x + math.cos(angle) * inner,
+            center_y + math.sin(angle) * inner,
+        )
+        ctx.line_to(
+            center_x + math.cos(angle) * outer,
+            center_y + math.sin(angle) * outer,
+        )
+    ctx.stroke()
+
+
+def _draw_modifier(
+    ctx,
+    center_x: float,
+    center_y: float,
+    *,
+    plus: bool,
+) -> None:
+    radius = 7
+    ctx.move_to(center_x - radius, center_y)
+    ctx.line_to(center_x + radius, center_y)
+    if plus:
+        ctx.move_to(center_x, center_y - radius)
+        ctx.line_to(center_x, center_y + radius)
+    ctx.stroke()
+
+
+def _draw_skip(ctx, center_x: float, center_y: float, *, direction: int) -> None:
+    point_x = center_x + direction * 8
+    back_x = center_x - direction * 5
+    bar_x = center_x + direction * 12
+    ctx.move_to(back_x, center_y - 11)
+    ctx.line_to(point_x, center_y)
+    ctx.line_to(back_x, center_y + 11)
+    ctx.close_path()
+    ctx.stroke()
+    ctx.move_to(bar_x, center_y - 11)
+    ctx.line_to(bar_x, center_y + 11)
+    ctx.stroke()
+
+
+def _draw_play_pause(ctx, center_x: float, center_y: float) -> None:
+    ctx.move_to(center_x - 15, center_y - 11)
+    ctx.line_to(center_x - 2, center_y)
+    ctx.line_to(center_x - 15, center_y + 11)
+    ctx.close_path()
+    ctx.stroke()
+    for x in (center_x + 6, center_x + 14):
+        ctx.move_to(x, center_y - 11)
+        ctx.line_to(x, center_y + 11)
+    ctx.stroke()
+
+
+def _draw_speaker(ctx, center_x: float, center_y: float) -> None:
+    ctx.move_to(center_x - 14, center_y - 6)
+    ctx.line_to(center_x - 7, center_y - 6)
+    ctx.line_to(center_x + 2, center_y - 13)
+    ctx.line_to(center_x + 2, center_y + 13)
+    ctx.line_to(center_x - 7, center_y + 6)
+    ctx.line_to(center_x - 14, center_y + 6)
+    ctx.close_path()
+    ctx.stroke()
 
 
 def _draw_logo_box(

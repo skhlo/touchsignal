@@ -15,8 +15,16 @@ from touchbar_owner.chatgpt import (
     parse_hyprland_clients,
 )
 from touchbar_owner.host import FakeHost
+from touchbar_owner.herdr import HerdrSnapshot
 from touchbar_owner.runtime import SupervisedRuntime
-from touchbar_owner.types import NATIVE_HEIGHT, NATIVE_WIDTH, TouchEvent
+from touchbar_owner.system_layer import LockState, MediaLayerFrame
+from touchbar_owner.types import (
+    NATIVE_HEIGHT,
+    NATIVE_WIDTH,
+    FnEvent,
+    MediaAction,
+    TouchEvent,
+)
 from touchbar_owner.workflow import TOUCH_SLOP, ChatGPTState, ChatGPTWorkflow, Geometry, WorkflowFrame, WorkflowRenderer
 
 
@@ -46,6 +54,33 @@ class FakeChatGPTActions:
 
     def request_focus(self, client: HyprlandClient) -> None:
         self.focused.append(client)
+
+
+@dataclass
+class FakeLockSource:
+    current: LockState = LockState.UNLOCKED
+
+    def state(self) -> LockState:
+        return self.current
+
+
+@dataclass
+class FakeHerdrSource:
+    current: HerdrSnapshot = field(default_factory=HerdrSnapshot.unavailable)
+
+    def snapshot(self) -> HerdrSnapshot:
+        return self.current
+
+    def subscribe(self, _on_change) -> None:
+        return None
+
+
+class FakeHerdrActions:
+    def request_agent_focus(self, _pane_id: str) -> bool:
+        return False
+
+    def request_workspace_focus(self, _workspace_id: str) -> bool:
+        return False
 
 
 class ManualClock:
@@ -263,6 +298,42 @@ class ChatGPTWorkflowActionTests(unittest.TestCase):
 
 
 class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
+    def test_locked_product_runtime_rejects_agent_tap_and_contains_no_agent_frame(self) -> None:
+        with TemporaryDirectory() as raw:
+            host = FakeHost(Path(raw))
+            host.queued_touch_events = [
+                TouchEvent("down", 40, 20),
+                TouchEvent("up", 40, 20),
+            ]
+            source = FakeHyprlandSource(
+                HyprlandSnapshot(
+                    available=True,
+                    clients=(CHATGPT_CLIENT,),
+                    active_address=None,
+                )
+            )
+            actions = FakeChatGPTActions()
+            runtime = build_product_runtime(
+                host,
+                restart_delay=0.0,
+                source=source,
+                actions=actions,
+                herdr_source=FakeHerdrSource(),
+                herdr_actions=FakeHerdrActions(),
+                lock_source=FakeLockSource(LockState.LOCKED),
+            )
+
+            runtime.start()
+            try:
+                runtime.process_once()
+            finally:
+                runtime.stop()
+
+        layer = host.presented_frames[-1].workflow_frame
+        self.assertIsInstance(layer, MediaLayerFrame)
+        self.assertFalse(hasattr(layer, "chatgpt_tile"))
+        self.assertEqual(actions.focused, [])
+
     def test_product_runtime_presents_workflow_frame_from_injected_sources(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
@@ -279,6 +350,9 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
                 restart_delay=0.0,
                 source=source,
                 actions=actions,
+                herdr_source=FakeHerdrSource(),
+                herdr_actions=FakeHerdrActions(),
+                lock_source=FakeLockSource(),
             )
 
             runtime.start()
@@ -295,6 +369,45 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
             presented.workflow_frame.chatgpt_tile.target.width,
             EXPECTED_CHATGPT_TARGET_WIDTH,
         )
+
+    def test_fn_media_survives_agent_source_loss_and_release_restores_agents(self) -> None:
+        with TemporaryDirectory() as raw:
+            host = FakeHost(Path(raw))
+            host.queued_fn_events.append(FnEvent("press"))
+            host.queued_touch_events = [
+                TouchEvent("down", 40, 20),
+                TouchEvent("up", 40, 20),
+            ]
+            runtime = build_product_runtime(
+                host,
+                restart_delay=0.0,
+                source=FakeHyprlandSource(HyprlandSnapshot.unavailable()),
+                actions=FakeChatGPTActions(),
+                herdr_source=FakeHerdrSource(),
+                herdr_actions=FakeHerdrActions(),
+                lock_source=FakeLockSource(),
+            )
+
+            runtime.start()
+            try:
+                runtime.process_once()
+                media = runtime.state.frames[-1].workflow_frame
+                self.assertIsInstance(media, MediaLayerFrame)
+                self.assertEqual(
+                    host.emitted_media_actions,
+                    [MediaAction.BRIGHTNESS_DOWN],
+                )
+
+                host.queued_fn_events.append(FnEvent("release"))
+                runtime.process_once()
+                agents = runtime.state.frames[-1].workflow_frame
+            finally:
+                runtime.stop()
+
+        self.assertIsInstance(agents, WorkflowFrame)
+        assert isinstance(agents, WorkflowFrame)
+        self.assertEqual(agents.chatgpt_tile.state, ChatGPTState.UNAVAILABLE)
+        self.assertEqual(agents.herdr_tiles, ())
 
     def test_runtime_can_record_a_workflow_frame_from_injected_sources(self) -> None:
         with TemporaryDirectory() as raw:

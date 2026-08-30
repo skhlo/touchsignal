@@ -4,14 +4,23 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from time import monotonic, sleep as default_sleep
 
-from .host import DisplaySession, Host, ResourceSession, TouchSession
+from .host import (
+    DisplaySession,
+    FnSession,
+    Host,
+    ResourceSession,
+    TouchSession,
+    VirtualKeyboardSession,
+)
 from .types import (
     COMPETING_RENDERERS,
     DRM_CONFIG,
     NATIVE_HEIGHT,
     NATIVE_WIDTH,
+    MediaAction,
     OwnerState,
     RuntimeFrame,
+    RuntimeInput,
     TouchEvent,
     firmware_row_restored,
 )
@@ -29,8 +38,10 @@ class TouchBarOwner:
     timeout: float = 20.0
     _display: DisplaySession | None = None
     _touch: TouchSession | None = None
+    _fn_input: FnSession | None = None
     _backlight: ResourceSession | None = None
-    _virtual_input: ResourceSession | None = None
+    _virtual_keyboard: VirtualKeyboardSession | None = None
+    _fn_held: bool = False
     _lock_held: bool = False
 
     def _until(self, missing: str, probe):
@@ -84,6 +95,16 @@ class TouchBarOwner:
             else:
                 raise OwnerError("firmware row is not at the observed baseline")
 
+        keyboards = [
+            device
+            for device in self.host.list_input_devices()
+            if device.is_internal_keyboard
+        ]
+        if len(keyboards) != 1:
+            raise OwnerError("Apple internal keyboard with KEY_FN was not found uniquely")
+        self._fn_input = self.host.open_fn_input(keyboards[0])
+        self.state.claimed.add("fn_input")
+
         try:
             card = self.host.attach_display()
         except RuntimeError as exc:
@@ -105,7 +126,7 @@ class TouchBarOwner:
             "Touch Bar digitizer did not appear after attach",
             lambda: [
                 device
-                for device in self.host.list_touch_devices()
+                for device in self.host.list_input_devices()
                 if device.is_touchbar_digitizer
             ],
         )
@@ -121,8 +142,11 @@ class TouchBarOwner:
         if callable(set_value):
             set_value("2")
 
-        self._virtual_input = self.host.open_virtual_input()
-        self.state.claimed.add("virtual_input")
+        try:
+            self._virtual_keyboard = self.host.open_virtual_keyboard()
+        except RuntimeError as exc:
+            raise OwnerError(str(exc)) from exc
+        self.state.claimed.add("virtual_keyboard")
 
     def release(self) -> None:
         errors: list[str] = []
@@ -130,7 +154,8 @@ class TouchBarOwner:
             ("display", self._display),
             ("touch", self._touch),
             ("backlight", self._backlight),
-            ("virtual_input", self._virtual_input),
+            ("fn_input", self._fn_input),
+            ("virtual_keyboard", self._virtual_keyboard),
         ):
             if session is None:
                 continue
@@ -140,8 +165,10 @@ class TouchBarOwner:
                 errors.append(f"{name}: {exc}")
         self._display = None
         self._touch = None
+        self._fn_input = None
         self._backlight = None
-        self._virtual_input = None
+        self._virtual_keyboard = None
+        self._fn_held = False
         self.state.claimed.clear()
         restored = None
         if self._lock_held:
@@ -166,6 +193,25 @@ class TouchBarOwner:
         events = self._touch.read_events()
         self.state.touch_events.extend(events)
         return events
+
+    def drain_input(self) -> RuntimeInput:
+        if self._fn_input is None:
+            raise OwnerError("Fn input is not claimed")
+        for event in self._fn_input.read_events():
+            if event.kind == "press":
+                self._fn_held = True
+            elif event.kind == "release":
+                self._fn_held = False
+        touches = self.drain_touch()
+        return RuntimeInput(touches=tuple(touches), fn_held=self._fn_held)
+
+    def dispatch_media_action(self, action: MediaAction) -> None:
+        if self._virtual_keyboard is None:
+            raise OwnerError("virtual keyboard is not claimed")
+        try:
+            self._virtual_keyboard.emit(action)
+        except Exception as exc:
+            raise OwnerError(str(exc)) from exc
 
     def present_test_surface(self) -> None:
         if self._display is None:

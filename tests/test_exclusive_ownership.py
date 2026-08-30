@@ -21,7 +21,13 @@ class ExclusiveOwnershipTests(unittest.TestCase):
 
             self.assertEqual(
                 first.state.claimed,
-                {"display", "touch", "backlight", "virtual_input"},
+                {
+                    "display",
+                    "touch",
+                    "backlight",
+                    "fn_input",
+                    "virtual_keyboard",
+                },
             )
             first.release()
 
@@ -39,7 +45,13 @@ class ExclusiveOwnershipTests(unittest.TestCase):
             self.assertEqual(host.usb_configuration, "2")
             self.assertEqual(
                 first.state.claimed,
-                {"display", "touch", "backlight", "virtual_input"},
+                {
+                    "display",
+                    "touch",
+                    "backlight",
+                    "fn_input",
+                    "virtual_keyboard",
+                },
             )
             first.release()
             self.assertEqual(host.usb_configuration, "1")

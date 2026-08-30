@@ -20,7 +20,11 @@ from touchbar_owner.types import (
     NATIVE_HEIGHT,
     NATIVE_WIDTH,
     OBSERVED_BASELINE,
+    FnEvent,
+    MediaAction,
     RuntimeFrame,
+    RuntimeInput,
+    RuntimeResult,
     TouchEvent,
 )
 
@@ -30,11 +34,28 @@ class FailingRenderer(ProofRenderer):
         self.fail_on = fail_on
         self.calls = 0
 
-    def render(self, touches: list[TouchEvent]) -> RuntimeFrame:
+    def render(self, runtime_input: RuntimeInput) -> RuntimeResult:
         self.calls += 1
         if self.calls == self.fail_on:
             raise RuntimeError("renderer failed")
-        return super().render(touches)
+        return super().render(runtime_input)
+
+
+class IntentRenderer:
+    def __init__(self) -> None:
+        self.inputs: list[RuntimeInput] = []
+
+    def render(self, runtime_input: RuntimeInput) -> RuntimeResult:
+        self.inputs.append(runtime_input)
+        frame = RuntimeFrame(
+            surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
+            touch_count=len(runtime_input.touches),
+            last_touch=(
+                runtime_input.touches[-1] if runtime_input.touches else None
+            ),
+        )
+        intents = (MediaAction.NEXT,) if runtime_input.touches else ()
+        return RuntimeResult(frame=frame, intents=intents)
 
 
 class RuntimePreflightTests(unittest.TestCase):
@@ -121,6 +142,24 @@ class RuntimePreflightTests(unittest.TestCase):
 
 
 class RuntimeOperationTests(unittest.TestCase):
+    def test_runtime_dispatches_renderer_intents_through_the_physical_owner(self) -> None:
+        with TemporaryDirectory() as raw:
+            host = FakeHost(Path(raw))
+            host.queued_fn_events = [FnEvent("press")]
+            host.queued_touch_events = [TouchEvent("up", 100, 20)]
+            renderer = IntentRenderer()
+            runtime = SupervisedRuntime(host, renderer=renderer)
+
+            runtime.start()
+            try:
+                runtime.process_once()
+            finally:
+                runtime.stop()
+
+        self.assertTrue(renderer.inputs[-1].fn_held)
+        self.assertEqual(host.emitted_media_actions, [MediaAction.NEXT])
+        self.assertEqual([action.kind for action in runtime.state.actions], ["next"])
+
     def test_unchanged_visual_frame_is_not_presented_again(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
@@ -136,7 +175,7 @@ class RuntimeOperationTests(unittest.TestCase):
             finally:
                 runtime.stop()
 
-    def test_runtime_carries_touch_through_state_frame_and_action(self) -> None:
+    def test_runtime_carries_touch_through_normalized_input_and_frame(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
             host.queued_touch_events = [
@@ -151,8 +190,7 @@ class RuntimeOperationTests(unittest.TestCase):
                 self.assertEqual(runtime.state.frames[-1].surface_size, (NATIVE_WIDTH, NATIVE_HEIGHT))
                 self.assertEqual(runtime.state.frames[-1].touch_count, 2)
                 self.assertEqual(runtime.state.frames[-1].last_touch, TouchEvent("up", 100, 20))
-                self.assertEqual(len(runtime.state.actions), 1)
-                self.assertEqual(runtime.state.actions[0].kind, "proof-touch-release")
+                self.assertEqual(runtime.state.actions, [])
             finally:
                 runtime.stop()
 
@@ -171,7 +209,13 @@ class RuntimeOperationTests(unittest.TestCase):
             self.assertEqual(host.firmware_row(), OBSERVED_BASELINE)
             self.assertEqual(
                 set(host.closed_sessions),
-                {"display", "touch", "backlight", "virtual_input"},
+                {
+                    "display",
+                    "touch",
+                    "backlight",
+                    "fn_input",
+                    "virtual_keyboard",
+                },
             )
 
     def test_renderer_failure_restores_before_supervised_restart_reacquires(self) -> None:

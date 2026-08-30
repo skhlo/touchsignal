@@ -69,6 +69,12 @@ required kernel modules, and device permissions before it claims hardware. It
 restores the firmware row before stop, logout, failed attach, and supervised
 restart.
 
+While the owner is healthy, it reads the internal keyboard's `KEY_FN` events
+without grabbing the keyboard. Fn selects a seven-button media layer backed by
+an owner-held virtual keyboard. Locked or unavailable Omarchy lock state selects
+the same privacy-safe media layer; unlocking refreshes workflow state before
+agent tiles return.
+
 Install or remove the user service with:
 
 ```bash
