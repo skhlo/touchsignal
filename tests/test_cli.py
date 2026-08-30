@@ -8,13 +8,18 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from touchbar_owner.cli import main
+from touchbar_owner.cli import build_parser, main
 from touchbar_owner.host import FakeHost
 from touchbar_owner.owner import TouchBarOwner
 from touchbar_owner.types import OBSERVED_BASELINE, TouchEvent
 
 
 class CliTests(unittest.TestCase):
+    def test_run_defaults_to_half_second_idle_refresh_timeout(self) -> None:
+        args = build_parser().parse_args(["run"])
+
+        self.assertEqual(args.poll_interval, 0.5)
+
     def test_status_prints_the_firmware_row(self) -> None:
         with TemporaryDirectory() as raw:
             root = Path(raw)
@@ -74,8 +79,13 @@ class CliTests(unittest.TestCase):
                 def __init__(self) -> None:
                     self.state = SimpleNamespace(running=False)
 
-                def run_supervised(self, cycles: int | None = None, max_restarts: int = 1) -> None:
-                    calls.append(("run", cycles, max_restarts))
+                def run_supervised(
+                    self,
+                    cycles: int | None = None,
+                    max_restarts: int = 1,
+                    touch_timeout: float = 0.0,
+                ) -> None:
+                    calls.append(("run", cycles, max_restarts, touch_timeout))
                     host.graphical_session = False
 
                 def stop(self) -> None:
@@ -93,7 +103,7 @@ class CliTests(unittest.TestCase):
                         rc = main([
                             "run",
                             "--poll-interval",
-                            "0",
+                            "0.2",
                             "--restart-delay",
                             "0.25",
                             "--max-restarts",
@@ -102,5 +112,5 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertEqual(calls[0], ("factory", host, 0.25))
-            self.assertIn(("run", 1, 0), calls)
+            self.assertIn(("run", 1, 0, 0.2), calls)
             self.assertIn(("stop",), calls)

@@ -74,6 +74,17 @@ class RecordingReader:
         return value
 
 
+class ManualClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 def thermal_workflow(
     snapshot: ThermalSnapshot,
 ) -> tuple[HerdrWorkflow, FakeThermalSource, FakeHerdrActions]:
@@ -291,6 +302,69 @@ class ThermalSafetyEnvelopeTests(unittest.TestCase):
         self.assertFalse(snapshot.cpu.available)
         self.assertEqual(snapshot.gpu_runtime, GpuRuntimeState.ACTIVE)
         self.assertFalse(snapshot.gpu.available)
+
+    def test_small_temperature_jitter_does_not_republish_the_frame(self) -> None:
+        clock = ManualClock()
+        reader = RecordingReader(
+            {
+                self.cpu_path: "56000\n",
+                self.runtime_path: "active\n",
+                self.gpu_path: "62000\n",
+            }
+        )
+        adapter = LiveThermalAdapter(
+            cpu_temperature_path=self.cpu_path,
+            gpu_runtime_status_path=self.runtime_path,
+            gpu_temperature_path=self.gpu_path,
+            read_text=reader,
+            clock=clock,
+            snapshot_interval=2.0,
+            display_delta_c=3,
+            max_display_interval=30.0,
+        )
+
+        first = adapter.snapshot()
+        reader.values[self.cpu_path] = "57000\n"
+        reader.values[self.gpu_path] = "63000\n"
+        clock.advance(2.0)
+
+        self.assertIs(adapter.snapshot(), first)
+
+        reader.values[self.cpu_path] = "59000\n"
+        reader.values[self.gpu_path] = "65000\n"
+        clock.advance(2.0)
+        changed = adapter.snapshot()
+
+        self.assertEqual(changed.cpu.celsius, 59)
+        self.assertEqual(changed.gpu.celsius, 65)
+
+    def test_temperature_band_crossing_republishes_immediately(self) -> None:
+        clock = ManualClock()
+        reader = RecordingReader(
+            {
+                self.cpu_path: "79000\n",
+                self.runtime_path: "active\n",
+                self.gpu_path: "75000\n",
+            }
+        )
+        adapter = LiveThermalAdapter(
+            cpu_temperature_path=self.cpu_path,
+            gpu_runtime_status_path=self.runtime_path,
+            gpu_temperature_path=self.gpu_path,
+            read_text=reader,
+            clock=clock,
+            snapshot_interval=2.0,
+            display_delta_c=3,
+        )
+        adapter.snapshot()
+        reader.values[self.cpu_path] = "80000\n"
+        reader.values[self.gpu_path] = "76000\n"
+        clock.advance(2.0)
+
+        changed = adapter.snapshot()
+
+        self.assertEqual(changed.cpu.celsius, 80)
+        self.assertEqual(changed.gpu.celsius, 76)
 
 
 if __name__ == "__main__":

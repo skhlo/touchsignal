@@ -16,6 +16,10 @@ CPU_PACKAGE_LABEL = "Package id 0"
 GPU_EDGE_LABEL = "edge"
 MIN_TEMPERATURE_MILLIDEGREES = -50_000
 MAX_TEMPERATURE_MILLIDEGREES = 150_000
+CPU_WARM_C = 80
+CPU_HOT_C = 92
+GPU_WARM_C = 76
+GPU_HOT_C = 90
 
 ReadText = Callable[[Path], str]
 
@@ -87,6 +91,8 @@ class LiveThermalAdapter:
         read_text: ReadText = _read_path,
         clock: Clock = monotonic,
         snapshot_interval: float = 2.0,
+        display_delta_c: int = 3,
+        max_display_interval: float = 30.0,
     ) -> None:
         self.cpu_temperature_path = cpu_temperature_path
         self.gpu_runtime_status_path = gpu_runtime_status_path
@@ -97,22 +103,69 @@ class LiveThermalAdapter:
         self.read_text = read_text
         self.clock = clock
         self.snapshot_interval = snapshot_interval
+        self.display_delta_c = display_delta_c
+        self.max_display_interval = max_display_interval
         self._cached_snapshot = ThermalSnapshot.unavailable()
-        self._snapshot_at: float | None = None
+        self._sample_at: float | None = None
+        self._display_at: float | None = None
 
     def snapshot(self) -> ThermalSnapshot:
         now = self.clock()
         if (
-            self._snapshot_at is not None
-            and now >= self._snapshot_at
-            and now - self._snapshot_at < self.snapshot_interval
+            self._sample_at is not None
+            and now >= self._sample_at
+            and now - self._sample_at < self.snapshot_interval
         ):
             return self._cached_snapshot
 
-        snapshot = self._capture_snapshot()
-        self._cached_snapshot = snapshot
-        self._snapshot_at = self.clock()
-        return snapshot
+        observed = self._capture_snapshot()
+        sampled_at = self.clock()
+        self._sample_at = sampled_at
+        if (
+            self._display_at is None
+            or self._materially_changed(self._cached_snapshot, observed)
+            or sampled_at - self._display_at >= self.max_display_interval
+        ):
+            self._cached_snapshot = observed
+            self._display_at = sampled_at
+        return self._cached_snapshot
+
+    def _materially_changed(
+        self,
+        previous: ThermalSnapshot,
+        current: ThermalSnapshot,
+    ) -> bool:
+        if previous.gpu_runtime != current.gpu_runtime:
+            return True
+        if previous.cpu.available != current.cpu.available:
+            return True
+        if previous.gpu.available != current.gpu.available:
+            return True
+        if temperature_band(previous.cpu.celsius, CPU_WARM_C, CPU_HOT_C) != temperature_band(
+            current.cpu.celsius,
+            CPU_WARM_C,
+            CPU_HOT_C,
+        ):
+            return True
+        if temperature_band(previous.gpu.celsius, GPU_WARM_C, GPU_HOT_C) != temperature_band(
+            current.gpu.celsius,
+            GPU_WARM_C,
+            GPU_HOT_C,
+        ):
+            return True
+        return self._temperature_delta(previous.cpu, current.cpu) or self._temperature_delta(
+            previous.gpu,
+            current.gpu,
+        )
+
+    def _temperature_delta(
+        self,
+        previous: TemperatureReading,
+        current: TemperatureReading,
+    ) -> bool:
+        if previous.celsius is None or current.celsius is None:
+            return previous.celsius != current.celsius
+        return abs(previous.celsius - current.celsius) >= self.display_delta_c
 
     def _capture_snapshot(self) -> ThermalSnapshot:
         cpu_path = self.cpu_temperature_path or self._discover_cpu_temperature()
@@ -220,3 +273,13 @@ class LiveThermalAdapter:
                         label_path.name.replace("_label", "_input")
                     )
         return None
+
+
+def temperature_band(celsius: int | None, warm: int, hot: int) -> str:
+    if celsius is None:
+        return "unavailable"
+    if celsius >= hot:
+        return "hot"
+    if celsius >= warm:
+        return "warm"
+    return "normal"

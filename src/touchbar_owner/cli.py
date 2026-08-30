@@ -218,7 +218,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     try:
         while not stop["value"]:
             try:
-                runtime.run_supervised(cycles=1, max_restarts=0)
+                runtime.run_supervised(
+                    cycles=1,
+                    max_restarts=0,
+                    touch_timeout=args.poll_interval,
+                )
             except PreflightError as exc:
                 if runtime.state.running:
                     rc = 1
@@ -235,7 +239,6 @@ def cmd_run(args: argparse.Namespace) -> int:
             restarts = 0
             if not runtime.state.running and not host.graphical_session_ready():
                 break
-            time.sleep(args.poll_interval)
     finally:
         try:
             runtime.stop()
@@ -252,7 +255,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("restore", help="restore USB config 1, special-key mode, Fn, autodim, and brightness").set_defaults(func=cmd_restore)
     sub.add_parser("preflight", help="verify that the runtime may claim the Touch Bar").set_defaults(func=cmd_preflight)
     run = sub.add_parser("run", help="run the supervised Touch Bar owner")
-    run.add_argument("--poll-interval", type=float, default=0.05)
+    run.add_argument("--poll-interval", type=float, default=0.5)
     run.add_argument("--restart-delay", type=float, default=1.0)
     run.add_argument("--max-restarts", type=int, default=3)
     run.set_defaults(func=cmd_run)

@@ -130,6 +130,11 @@ tile dims and shows `--°C`; there is no separate dGPU power tile. A hardware
 test must verify that the runtime-state query itself does not wake a suspended
 device before this polling path is accepted.
 
+Thermal sources sample every two seconds. Presentation republishes immediately
+when availability, dGPU runtime state, severity band, or a three-degree change
+occurs, and at least once every 30 seconds otherwise. This keeps exact values
+fresh without repainting the full DRM surface for one-degree sensor jitter.
+
 ### Thermal safety trust envelope
 
 | Invariant | Strength | Home | Oracle and seam | Disposition and proof |
@@ -186,6 +191,9 @@ The ChatGPT app tile is always present.
 
 The exact launch command will be discovered from the installed desktop entry at
 implementation time rather than embedded as an Omarchy-specific shell command.
+Hyprland state and focus actions use its synchronous Unix IPC socket directly;
+the adapter closes every request connection immediately and falls back to
+`hyprctl` only when the socket is unavailable.
 
 ## Omarchy integration
 
@@ -224,6 +232,10 @@ For each tile:
 State changes use an immediate update or a short cross-fade. They do not slide
 the entire row or use decorative looping motion. The tile layout remains stable
 as labels and states update.
+
+The owner waits on the touch file descriptor with a 500-millisecond idle source
+refresh timeout. A real touch wakes the wait immediately, while idle operation
+avoids a fixed high-frequency polling loop.
 
 TouchSignal is supplemental. Every action remains available through the normal
 keyboard, Herdr, Hyprland, ChatGPT, and coding-agent interfaces. A Touch Bar

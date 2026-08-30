@@ -96,14 +96,21 @@ class FakeDisplaySession:
 
 
 class FakeTouchSession:
-    def __init__(self, queued: list[TouchEvent], closed_sessions: list[str]) -> None:
+    def __init__(
+        self,
+        queued: list[TouchEvent],
+        closed_sessions: list[str],
+        read_timeouts: list[float],
+    ) -> None:
         self._queued = list(queued)
         self._closed_sessions = closed_sessions
+        self._read_timeouts = read_timeouts
         self.closed = False
 
     def read_events(self, timeout: float = 0.0) -> list[TouchEvent]:
         if self.closed:
             raise RuntimeError("touch already closed")
+        self._read_timeouts.append(timeout)
         events = list(self._queued)
         self._queued.clear()
         return events
@@ -146,6 +153,7 @@ class FakeHost:
     presented_surfaces: list[tuple[int, int]] = field(default_factory=list)
     presented_frames: list[RuntimeFrame] = field(default_factory=list)
     queued_touch_events: list[TouchEvent] = field(default_factory=list)
+    touch_read_timeouts: list[float] = field(default_factory=list)
     closed_sessions: list[str] = field(default_factory=list)
     operations: list[str] = field(default_factory=list)
     _lock_fd: int | None = None
@@ -283,7 +291,11 @@ class FakeHost:
     def open_touch(self, device: TouchDevice) -> FakeTouchSession:
         if not device.is_touchbar_digitizer:
             raise RuntimeError("firmware keyboard is not a touch surface")
-        session = FakeTouchSession(self.queued_touch_events, self.closed_sessions)
+        session = FakeTouchSession(
+            self.queued_touch_events,
+            self.closed_sessions,
+            self.touch_read_timeouts,
+        )
         self._touch = session
         return session
 

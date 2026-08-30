@@ -160,10 +160,10 @@ class TouchBarOwner:
         if errors:
             raise OwnerError("; ".join(errors))
 
-    def drain_touch(self) -> list[TouchEvent]:
+    def drain_touch(self, timeout: float = 0.0) -> list[TouchEvent]:
         if self._touch is None:
             raise OwnerError("touch is not claimed")
-        events = self._touch.read_events()
+        events = self._touch.read_events(timeout)
         self.state.touch_events.extend(events)
         return events
 

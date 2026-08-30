@@ -13,7 +13,16 @@ from .herdr import (
     HerdrSource,
     HerdrWorkspace,
 )
-from .thermal import GpuRuntimeState, ThermalSnapshot, ThermalSource
+from .thermal import (
+    CPU_HOT_C,
+    CPU_WARM_C,
+    GPU_HOT_C,
+    GPU_WARM_C,
+    GpuRuntimeState,
+    ThermalSnapshot,
+    ThermalSource,
+    temperature_band,
+)
 from .types import NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame, TouchEvent
 
 
@@ -34,10 +43,6 @@ POWER_TARGET_WIDTH = 142
 HARDWARE_TARGET_HEIGHT = 46
 HARDWARE_GAP = 6
 HARDWARE_RIGHT_PADDING = 8
-CPU_WARM_C = 80
-CPU_HOT_C = 92
-GPU_WARM_C = 76
-GPU_HOT_C = 90
 
 
 class ChatGPTState(StrEnum):
@@ -483,16 +488,6 @@ def _temperature_value(celsius: int | None) -> str:
     return f"{celsius}°C" if celsius is not None else "--°C"
 
 
-def _temperature_band(celsius: int | None, warm: int, hot: int) -> str:
-    if celsius is None:
-        return "unavailable"
-    if celsius >= hot:
-        return "hot"
-    if celsius >= warm:
-        return "warm"
-    return "normal"
-
-
 def _status_sign(state: ChatGPTState) -> str:
     signs = {
         ChatGPTState.CLOSED: "dot",
@@ -600,7 +595,7 @@ class HerdrWorkflow:
     ) -> tuple[TemperatureTileFrame, TemperatureTileFrame]:
         snapshot = self.last_thermal_snapshot
         cpu = snapshot.cpu
-        cpu_band = _temperature_band(cpu.celsius, CPU_WARM_C, CPU_HOT_C)
+        cpu_band = temperature_band(cpu.celsius, CPU_WARM_C, CPU_HOT_C)
         cpu_frame = TemperatureTileFrame(
             target=cpu_temperature_geometry(),
             label="CPU",
@@ -615,7 +610,7 @@ class HerdrWorkflow:
         gpu = snapshot.gpu
         gpu_active = snapshot.gpu_runtime == GpuRuntimeState.ACTIVE
         gpu_available = gpu_active and gpu.available
-        gpu_band = _temperature_band(gpu.celsius, GPU_WARM_C, GPU_HOT_C)
+        gpu_band = temperature_band(gpu.celsius, GPU_WARM_C, GPU_HOT_C)
         gpu_frame = TemperatureTileFrame(
             target=gpu_temperature_geometry(),
             label="GPU",

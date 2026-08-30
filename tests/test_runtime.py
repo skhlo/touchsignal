@@ -136,6 +136,18 @@ class RuntimeOperationTests(unittest.TestCase):
             finally:
                 runtime.stop()
 
+    def test_process_waits_on_touch_input_for_the_refresh_interval(self) -> None:
+        with TemporaryDirectory() as raw:
+            host = FakeHost(Path(raw))
+            runtime = SupervisedRuntime(host)
+            runtime.start()
+            try:
+                runtime.process_once(touch_timeout=0.25)
+            finally:
+                runtime.stop()
+
+            self.assertEqual(host.touch_read_timeouts[-1], 0.25)
+
     def test_runtime_carries_touch_through_state_frame_and_action(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
