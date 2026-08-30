@@ -64,6 +64,7 @@ class LiveOmarchyLockSource:
         now = self.clock()
         if (
             self._checked_at is not None
+            and self._cached_state != LockState.UNLOCKED
             and now >= self._checked_at
             and now - self._checked_at < self.poll_interval
         ):
@@ -139,20 +140,31 @@ class SystemLayerWorkflow:
 
     def render(self, runtime_input: RuntimeInput) -> RuntimeResult:
         locked = self.lock_source.state() != LockState.UNLOCKED
-        next_layer = "media" if locked or runtime_input.fn_held else "agents"
-        if self._active_layer is not None and self._active_layer != next_layer:
-            self.agents.cancel_contacts()
-            self._media_press = None
-            if next_layer == "agents":
-                self.agents.refresh_verified_state()
-        self._active_layer = next_layer
-        if next_layer == "media":
+        desired_layer = "media" if locked or runtime_input.fn_held else "agents"
+        layer_changed = False
+        accept_transition_touches = False
+        if self._active_layer is None:
+            self._active_layer = desired_layer
+        elif self._active_layer != desired_layer:
+            accept_transition_touches = (
+                desired_layer == "media" and runtime_input.fn_held and not locked
+            )
+            self._transition_to(desired_layer)
+            layer_changed = True
+
+        if layer_changed and not accept_transition_touches:
+            intents = ()
+        elif self._active_layer == "media":
             intents = self._process_media_events(runtime_input.touches)
-            layer: object = self._media_frame()
         else:
             intents = ()
             self.agents.process_touch_events(list(runtime_input.touches))
-            layer = self.agents.frame()
+
+        layer: object = (
+            self._media_frame()
+            if self._active_layer == "media"
+            else self.agents.frame()
+        )
         frame = RuntimeFrame(
             surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
             touch_count=len(runtime_input.touches),
@@ -160,6 +172,13 @@ class SystemLayerWorkflow:
             workflow_frame=layer,
         )
         return RuntimeResult(frame=frame, intents=intents)
+
+    def _transition_to(self, layer: str) -> None:
+        self.agents.cancel_contacts()
+        self._media_press = None
+        if layer == "agents":
+            self.agents.refresh_verified_state()
+        self._active_layer = layer
 
     def _process_media_events(
         self,

@@ -180,6 +180,40 @@ class SystemLayerWorkflowTests(unittest.TestCase):
         self.assertEqual(unavailable_agents.events, [])
         self.assertNotIn("codex", repr(unavailable.frame.workflow_frame))
 
+    def test_next_render_observes_lock_before_accepting_workflow_touch(self) -> None:
+        outputs = iter(("false\n", "true\n"))
+        calls = 0
+
+        def run(command: list[str], **_kwargs):
+            nonlocal calls
+            calls += 1
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=next(outputs),
+                stderr="",
+            )
+
+        agents = ContactAgentWorkflow()
+        workflow = SystemLayerWorkflow(
+            agents,
+            LiveOmarchyLockSource(run=run),
+        )
+        workflow.render(RuntimeInput())
+
+        locked = workflow.render(
+            RuntimeInput(
+                touches=(
+                    TouchEvent("down", 40, 20),
+                    TouchEvent("up", 40, 20),
+                )
+            )
+        )
+
+        self.assertEqual(calls, 2)
+        self.assertIsInstance(locked.frame.workflow_frame, MediaLayerFrame)
+        self.assertEqual(agents.events, [])
+
     def test_fn_release_cancels_an_active_media_contact_before_showing_agents(self) -> None:
         agents = ContactAgentWorkflow()
         workflow = SystemLayerWorkflow(agents, FakeLockSource())
@@ -206,6 +240,28 @@ class SystemLayerWorkflowTests(unittest.TestCase):
 
         self.assertEqual(released.intents, ())
         self.assertEqual(agents.cancel_count, 1)
+        self.assertEqual(released.frame.workflow_frame, {"agent_identity": "fresh-agent"})
+
+    def test_fn_release_batch_cannot_reach_the_agent_layer(self) -> None:
+        agents = ContactAgentWorkflow()
+        workflow = SystemLayerWorkflow(agents, FakeLockSource())
+        initial = workflow.render(RuntimeInput(fn_held=True))
+        layer = initial.frame.workflow_frame
+        assert isinstance(layer, MediaLayerFrame)
+        target = layer.buttons[0].target
+
+        released = workflow.render(
+            RuntimeInput(
+                touches=(
+                    TouchEvent("down", target.x + 1, target.y + 1),
+                    TouchEvent("up", target.x + 1, target.y + 1),
+                ),
+                fn_held=False,
+            )
+        )
+
+        self.assertEqual(released.intents, ())
+        self.assertEqual(agents.events, [])
         self.assertEqual(released.frame.workflow_frame, {"agent_identity": "fresh-agent"})
 
 
@@ -239,9 +295,9 @@ class OmarchyLockAdapterTests(unittest.TestCase):
             )
         )
 
-    def test_lock_queries_are_rate_bounded_without_hiding_the_next_state(self) -> None:
+    def test_privacy_safe_lock_states_are_rate_bounded(self) -> None:
         clock = ManualClock()
-        outputs = iter(("false\n", "true\n"))
+        outputs = iter(("true\n", "false\n"))
         calls = 0
 
         def run(command: list[str], **_kwargs):
@@ -260,14 +316,14 @@ class OmarchyLockAdapterTests(unittest.TestCase):
             poll_interval=0.25,
         )
 
-        self.assertEqual(source.state(), LockState.UNLOCKED)
-        self.assertEqual(source.state(), LockState.UNLOCKED)
+        self.assertEqual(source.state(), LockState.LOCKED)
+        self.assertEqual(source.state(), LockState.LOCKED)
         clock.advance(0.249)
-        self.assertEqual(source.state(), LockState.UNLOCKED)
+        self.assertEqual(source.state(), LockState.LOCKED)
         self.assertEqual(calls, 1)
 
         clock.advance(0.001)
-        self.assertEqual(source.state(), LockState.LOCKED)
+        self.assertEqual(source.state(), LockState.UNLOCKED)
         self.assertEqual(calls, 2)
 
 

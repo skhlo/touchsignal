@@ -241,14 +241,18 @@ One system-layer workflow wraps the agent workflow. While unlocked, released Fn
 shows agents and held Fn shows seven monochrome controls: brightness down/up,
 previous, play/pause, next, and volume down/up. Media actions commit exactly
 once on release within the same forgiving boundary as workflow tiles. Any
-layer transition cancels active contacts.
+layer transition cancels active contacts. A touch batch that coincides with Fn
+release, lock, or unlock is discarded instead of being routed across layers;
+Fn entry may accept that batch only on the newly selected media layer.
 
 `omarchy-shell lock isLocked` is the authoritative lock source. Calls have a
-bounded process timeout and a bounded polling rate. Locked state, an unavailable
-lock source, a timeout, and malformed output all select the same privacy-safe
-media layer. That layer has no agent-bearing frame fields. Unlock forces fresh
-Herdr and Hyprland snapshots before an agent frame can return. Theme, sensor,
-Herdr, and Hyprland failures do not sit on the media path.
+bounded process timeout and a bounded polling rate. An unlocked verdict is
+rechecked on every runtime cycle so a lock request preempts workflow input;
+only privacy-safe locked or unavailable verdicts may be cached. Locked state,
+an unavailable lock source, a timeout, and malformed output all select the same
+privacy-safe media layer. That layer has no agent-bearing frame fields. Unlock
+forces fresh Herdr and Hyprland snapshots before an agent frame can return.
+Theme, sensor, Herdr, and Hyprland failures do not sit on the media path.
 
 ## Version 0.1 acceptance gates
 
