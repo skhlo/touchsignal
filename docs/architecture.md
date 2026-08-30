@@ -145,11 +145,12 @@ fresh without repainting the full DRM surface for one-degree sensor jitter.
 
 The active on-device path resolves the CPU package sensor, observes an active
 dGPU runtime verdict, and displays the verified AMD edge temperature. The
-suspended on-device proof remains provisional because the current compositor
-session holds the AMD DRM device and prevents runtime suspension even when
-runtime power control is temporarily set to automatic. The test must be rerun
-in an iGPU-only compositor session; the temporary power-control probe restored
-its original value.
+suspended on-device proof remains provisional after an iGPU-only compositor
+session released every dGPU device holder: temporary automatic runtime control
+still left the AMD function active, and its suspended-time counter remained
+zero. The installed driver's automatic `amdgpu.runpm=-1` policy is read-only at
+runtime. A further proof requires a separately approved reboot with forced
+runtime PM; the temporary compositor and power-control changes were restored.
 
 The power-profile tile is the only interactive hardware tile. It opens explicit
 `Power saver`, `Balanced`, `Performance`, and `Cancel` choices and changes its
