@@ -112,8 +112,9 @@ The workflow layer has three stable regions.
    four-workspace state therefore has five visible agent tiles.
 2. The center is reserved for future contextual information. Version 0.1 does not
    move the agent dock into this space.
-3. The right hardware cluster contains only CPU temperature, GPU temperature,
-   and the power-profile control.
+3. The right hardware cluster contains only CPU and GPU temperature. Removing
+   the planned power-profile control shifts both read-only tiles one button to
+   the right and keeps the GPU tile eight pixels from the physical edge.
 
 Each agent hit target is 112 by 46 pixels. The logo and status sign sit side by
 side in equal 30-pixel boxes. Prototype letters stand in for final agent logos.
@@ -141,7 +142,7 @@ fresh without repainting the full DRM surface for one-degree sensor jitter.
 | --- | --- | --- | --- | --- |
 | A dGPU temperature read occurs only after the immediately preceding runtime verdict is `active`. | Enforced | `LiveThermalAdapter.snapshot()` | Injected file reader records every path access. | Placed. Active tests prove runtime-before-temperature order; suspended, unknown, unreadable, and discovery-bypass tests prove the temperature path is never reached. |
 | CPU and GPU tiles never emit a hardware action. | Enforced | Workflow touch routing | Product-seam actions are observed after touches in both thermal targets. | Placed. Thermal target tests produce no agent, workspace, or hardware action. |
-| CPU, GPU, and future power positions remain stable across source states. | Enforced | Workflow frame geometry | Product-seam frame targets. | Placed. Geometry tests cover the three right-cluster slots from unavailable through active snapshots. |
+| CPU and GPU positions remain stable at the right edge across source states. | Enforced | Workflow frame geometry | Product-seam frame targets. | Placed. Geometry tests cover both right-aligned temperature tiles from unavailable through active snapshots. |
 
 The active on-device path resolves the CPU package sensor, observes an active
 dGPU runtime verdict, and displays the verified AMD edge temperature. The
@@ -175,10 +176,6 @@ must not run without separate approval for its reboot stage.
 | A compositor override is never written until the forced runtime-PM boot is verified. | Enforced | Parameter-first proof state transition | `/proc/cmdline` and the loaded amdgpu `runpm` value before the UWSM write stage | Placed. A normal boot without the requested parameter stops before backup or override creation. |
 | A temporary compositor override never carries a DRM card number across a reboot. | Enforced | PCI-resolving UWSM environment snippet | The resolved DRM node must link to Intel PCI `0000:00:02.0`; Hyprland must then report one nonzero enabled monitor. | Placed. The live selector resolved Intel by PCI identity; mutation to an absent PCI identity unset a stale override instead of selecting a card. |
 | The enabled TouchSignal service has `/dev/uinput` available after reboot. | Enforced | `systemd/modules-load.d/touchsignal.conf` | `/dev/uinput` writability plus service preflight after login | Provisional until the shipped file is installed and one later reboot proves the boot path. The proof wizard refuses its first reboot while the installed file differs. |
-
-The power-profile tile is the only interactive hardware tile. It opens explicit
-`Power saver`, `Balanced`, `Performance`, and `Cancel` choices and changes its
-label only after the system source verifies the selected profile.
 
 ### Herdr workspace selection
 
@@ -307,8 +304,8 @@ Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1
 - the ChatGPT app tile launches and focuses only after Hyprland verification;
 - one through four, and more than four, Herdr workspaces render in Herdr order;
 - the ChatGPT app tile remains visible beside all four Herdr workspace tiles;
-- the center remains reserved while CPU temperature, GPU temperature, and power
-  profile remain the only right-side tiles;
+- the center remains reserved while CPU and GPU temperature remain the only
+  right-side tiles;
 - a suspended dGPU dims the GPU tile without a temperature read or wake event;
 - every Herdr lifecycle state displays its accurate sign and semantic color,
   with the full label available in diagnostic output;

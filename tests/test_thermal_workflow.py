@@ -18,11 +18,9 @@ from touchbar_owner.workflow import (
     GPU_TARGET_WIDTH,
     HARDWARE_GAP,
     HARDWARE_RIGHT_PADDING,
-    POWER_TARGET_WIDTH,
     HerdrWorkflow,
     cpu_temperature_geometry,
     gpu_temperature_geometry,
-    power_slot_geometry,
 )
 
 
@@ -99,22 +97,26 @@ def thermal_workflow(
 
 
 class ThermalLayoutTests(unittest.TestCase):
-    def test_right_cluster_reserves_cpu_gpu_and_future_power_positions(self) -> None:
+    def test_right_cluster_places_cpu_and_gpu_at_the_right_edge(self) -> None:
         workflow, _, _ = thermal_workflow(ThermalSnapshot.unavailable())
 
         frame = workflow.frame()
 
         self.assertEqual(frame.cpu_temperature.target, cpu_temperature_geometry())
         self.assertEqual(frame.gpu_temperature.target, gpu_temperature_geometry())
-        self.assertEqual(frame.power_slot.target, power_slot_geometry())
+        self.assertFalse(hasattr(frame, "power_slot"))
         self.assertEqual(frame.cpu_temperature.target.width, CPU_TARGET_WIDTH)
         self.assertEqual(frame.gpu_temperature.target.width, GPU_TARGET_WIDTH)
-        self.assertEqual(frame.power_slot.target.width, POWER_TARGET_WIDTH)
-        self.assertEqual(frame.power_slot.target.right + HARDWARE_RIGHT_PADDING + 1, 2008)
         self.assertEqual(
-            frame.gpu_temperature.target.right + HARDWARE_GAP + 1,
-            frame.power_slot.target.x,
+            frame.gpu_temperature.target.right + HARDWARE_RIGHT_PADDING + 1,
+            2008,
         )
+        self.assertEqual(
+            frame.cpu_temperature.target.right + HARDWARE_GAP + 1,
+            frame.gpu_temperature.target.x,
+        )
+        self.assertEqual(frame.cpu_temperature.target.x, 1698)
+        self.assertEqual(frame.gpu_temperature.target.x, 1852)
         self.assertEqual(frame.reserved_center.right + 1, frame.cpu_temperature.target.x)
 
     def test_cpu_temperature_and_unavailable_presentations(self) -> None:

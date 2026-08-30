@@ -39,7 +39,6 @@ DEFAULT_PENDING_TIMEOUT = 5.0
 DEFAULT_FAILURE_DISPLAY_TIMEOUT = 2.0
 CPU_TARGET_WIDTH = 148
 GPU_TARGET_WIDTH = 148
-POWER_TARGET_WIDTH = 142
 HARDWARE_TARGET_HEIGHT = 46
 HARDWARE_GAP = 6
 HARDWARE_RIGHT_PADDING = 8
@@ -205,7 +204,6 @@ class WorkflowFrame:
     empty_slots: tuple[EmptyTileFrame, ...] = ()
     cpu_temperature: TemperatureTileFrame | None = None
     gpu_temperature: TemperatureTileFrame | None = None
-    power_slot: EmptyTileFrame | None = None
     reserved_center: Geometry | None = None
     safe_system_layer_available: bool = True
 
@@ -411,19 +409,9 @@ def herdr_slot_geometry(index: int) -> Geometry:
     )
 
 
-def power_slot_geometry() -> Geometry:
-    return Geometry(
-        x=NATIVE_WIDTH - HARDWARE_RIGHT_PADDING - POWER_TARGET_WIDTH,
-        y=(NATIVE_HEIGHT - HARDWARE_TARGET_HEIGHT) // 2,
-        width=POWER_TARGET_WIDTH,
-        height=HARDWARE_TARGET_HEIGHT,
-    )
-
-
 def gpu_temperature_geometry() -> Geometry:
-    power = power_slot_geometry()
     return Geometry(
-        x=power.x - HARDWARE_GAP - GPU_TARGET_WIDTH,
+        x=NATIVE_WIDTH - HARDWARE_RIGHT_PADDING - GPU_TARGET_WIDTH,
         y=(NATIVE_HEIGHT - HARDWARE_TARGET_HEIGHT) // 2,
         width=GPU_TARGET_WIDTH,
         height=HARDWARE_TARGET_HEIGHT,
@@ -580,7 +568,6 @@ class HerdrWorkflow:
             empty_slots=tuple(empty),
             cpu_temperature=cpu_temperature,
             gpu_temperature=gpu_temperature,
-            power_slot=EmptyTileFrame(target=power_slot_geometry()),
             reserved_center=Geometry(
                 x=last_target.right + 1,
                 y=0,
