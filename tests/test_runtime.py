@@ -210,6 +210,14 @@ class RuntimeOperationTests(unittest.TestCase):
 
 
 class RuntimeInstallTests(unittest.TestCase):
+    def test_runtime_package_loads_uinput_at_boot(self) -> None:
+        config = (
+            Path(__file__).resolve().parents[1]
+            / "systemd/modules-load.d/touchsignal.conf"
+        )
+
+        self.assertEqual(config.read_text(encoding="utf-8"), "uinput\n")
+
     def test_service_template_starts_after_graphical_session_and_restores_on_stop(self) -> None:
         service = render_user_service(Path("/usr/bin/touchsignal-touchbar-owner"))
 

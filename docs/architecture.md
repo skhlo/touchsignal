@@ -149,8 +149,32 @@ suspended on-device proof remains provisional after an iGPU-only compositor
 session released every dGPU device holder: temporary automatic runtime control
 still left the AMD function active, and its suspended-time counter remained
 zero. The installed driver's automatic `amdgpu.runpm=-1` policy is read-only at
-runtime. A further proof requires a separately approved reboot with forced
-runtime PM; the temporary compositor and power-control changes were restored.
+runtime.
+
+A later forced-runtime-PM attempt stopped before the hardware probe. Its Limine
+edit was not active after reboot, while a prewritten `/dev/dri/card1` compositor
+override survived. DRM enumeration changed from Intel card1 and AMD card2 to
+Intel card0 and AMD card1, so the override selected AMD and Hyprland exposed a
+zero-sized internal output with no modes. Removing the override and booting
+normally restored the 3072 by 1920 display. The attempt produced no suspended
+GPU evidence and invalidated every proof flow that carries a DRM card number
+across a reboot.
+
+The replacement proof must verify `amdgpu.runpm=1` before it writes a compositor
+override. Its UWSM environment resolves the Intel PCI function `0000:00:02.0`
+to the current DRM node every time the session starts and unsets the override
+when that identity is absent. It then uses a same-boot logout for the iGPU-only
+session. Reboot, GPU identity, monitor health, TouchSignal health, and dGPU
+holder gates all precede the privileged probe. This proof remains pending and
+must not run without separate approval for its reboot stage.
+
+### Hardware proof safety trust envelope
+
+| Invariant | Strength | Home | Oracle and seam | Disposition and proof |
+| --- | --- | --- | --- | --- |
+| A compositor override is never written until the forced runtime-PM boot is verified. | Enforced | Parameter-first proof state transition | `/proc/cmdline` and the loaded amdgpu `runpm` value before the UWSM write stage | Placed. A normal boot without the requested parameter stops before backup or override creation. |
+| A temporary compositor override never carries a DRM card number across a reboot. | Enforced | PCI-resolving UWSM environment snippet | The resolved DRM node must link to Intel PCI `0000:00:02.0`; Hyprland must then report one nonzero enabled monitor. | Placed. The live selector resolved Intel by PCI identity; mutation to an absent PCI identity unset a stale override instead of selecting a card. |
+| The enabled TouchSignal service has `/dev/uinput` available after reboot. | Enforced | `systemd/modules-load.d/touchsignal.conf` | `/dev/uinput` writability plus service preflight after login | Provisional until the shipped file is installed and one later reboot proves the boot path. The proof wizard refuses its first reboot while the installed file differs. |
 
 The power-profile tile is the only interactive hardware tile. It opens explicit
 `Power saver`, `Balanced`, `Performance`, and `Cancel` choices and changes its
@@ -257,6 +281,10 @@ The supervisor starts only after graphical login and uses restart-on-failure.
 It quiesces and closes hardware before suspend, rediscovers devices after
 resume, and restores the firmware row if reattachment fails. It must not start
 on an unsupported model or without the required kernel modules and permissions.
+The shipped modules-load configuration owns the `uinput` boot prerequisite so
+the enabled user service does not race a missing `/dev/uinput` node after a
+reboot. Installation remains an explicit privileged step and removal does not
+unload the module from the current boot.
 
 When the session locks, agent labels and actions are hidden. TouchSignal shows a
 neutral media layer or blanks the panel and rejects workflow taps until the
