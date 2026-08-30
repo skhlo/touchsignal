@@ -254,6 +254,13 @@ privacy-safe media layer. That layer has no agent-bearing frame fields. Unlock
 forces fresh Herdr and Hyprland snapshots before an agent frame can return.
 Theme, sensor, Herdr, and Hyprland failures do not sit on the media path.
 
+On-device acceptance on MacBookPro16,1 verified physical Fn press/release,
+all seven brightness, transport, and volume actions exactly once on release,
+privacy-safe locked media, removal of every workflow element while locked,
+fresh workflow state after unlock, and the native 2008 by 60 vector-icon
+presentation without clipping or jitter. The temporary test service was removed
+and the previously active TouchSignal user unit was restored byte-for-byte.
+
 ## Version 0.1 acceptance gates
 
 Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1:
