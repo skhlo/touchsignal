@@ -173,6 +173,8 @@ TILE_ATTENTION_BACKGROUND = LIGHT_INK
 TILE_PRESSED_BACKGROUND = (0.20, 0.20, 0.20)
 TILE_PENDING_BACKGROUND = (0.08, 0.08, 0.08)
 
+_LOGO_MASK_CACHE: dict[tuple[str, int, int], object] = {}
+
 
 def _tile_contrast(
     *,
@@ -251,6 +253,11 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
         ctx.set_source_rgb(*PANEL_BACKGROUND)
         ctx.rectangle(reserved.x, reserved.y, reserved.width, reserved.height)
         ctx.fill()
+
+    if workflow.cpu_temperature is not None:
+        _draw_temperature_tile(ctx, workflow.cpu_temperature)
+    if workflow.gpu_temperature is not None:
+        _draw_temperature_tile(ctx, workflow.gpu_temperature)
 
 
 def _draw_logo_box(
@@ -344,48 +351,101 @@ def _workspace_fallback(label: str | None) -> str:
     return label[:2].upper()
 
 
+def _draw_temperature_tile(ctx, tile) -> None:
+    background, ink = _tile_contrast(
+        attention=tile.attention,
+        pressed=False,
+        pending=False,
+    )
+    target = tile.target
+    ctx.set_source_rgb(*background)
+    ctx.rectangle(target.x, target.y, target.width, target.height)
+    ctx.fill()
+
+    if tile.dimmed:
+        label_color = (0.35, 0.35, 0.35)
+        value_color = label_color
+    else:
+        label_color = ink
+        if tile.band == "hot":
+            value_color = SEMANTIC_RED
+        elif tile.band == "warm":
+            value_color = SEMANTIC_AMBER
+        elif not tile.available:
+            value_color = SEMANTIC_RED
+        else:
+            value_color = ink
+
+    ctx.set_source_rgb(*label_color)
+    ctx.select_font_face("Sans")
+    ctx.set_font_size(13)
+    _show_centered_text(
+        ctx,
+        tile.label,
+        target.x + 5,
+        target.y,
+        43,
+        target.height,
+    )
+
+    ctx.set_source_rgb(*value_color)
+    ctx.set_font_size(20)
+    _show_centered_text(
+        ctx,
+        tile.value,
+        target.x + 48,
+        target.y,
+        target.width - 53,
+        target.height,
+    )
+
+
 def _draw_logo_asset(ctx, box, asset: str, foreground) -> bool:
     path = _resolve_asset_path(asset)
     if path is None:
         return False
+    cache_key = (str(path), box.width, box.height)
+    mask = _LOGO_MASK_CACHE.get(cache_key)
     try:
-        import cairo
+        if mask is None:
+            import cairo
 
-        mask = cairo.ImageSurface(
-            cairo.FORMAT_ARGB32,
-            box.width,
-            box.height,
-        )
-        mask_context = cairo.Context(mask)
-        if path.suffix.casefold() == ".png":
-            surface = cairo.ImageSurface.create_from_png(str(path))
-            padding = 1
-            scale = min(
-                (box.width - padding * 2) / surface.get_width(),
-                (box.height - padding * 2) / surface.get_height(),
+            mask = cairo.ImageSurface(
+                cairo.FORMAT_ARGB32,
+                box.width,
+                box.height,
             )
-            x = (box.width - surface.get_width() * scale) / 2
-            y = (box.height - surface.get_height() * scale) / 2
-            mask_context.translate(x, y)
-            mask_context.scale(scale, scale)
-            mask_context.set_source_surface(surface, 0, 0)
-            mask_context.paint()
-        else:
-            import gi
+            mask_context = cairo.Context(mask)
+            if path.suffix.casefold() == ".png":
+                surface = cairo.ImageSurface.create_from_png(str(path))
+                padding = 1
+                scale = min(
+                    (box.width - padding * 2) / surface.get_width(),
+                    (box.height - padding * 2) / surface.get_height(),
+                )
+                x = (box.width - surface.get_width() * scale) / 2
+                y = (box.height - surface.get_height() * scale) / 2
+                mask_context.translate(x, y)
+                mask_context.scale(scale, scale)
+                mask_context.set_source_surface(surface, 0, 0)
+                mask_context.paint()
+            else:
+                import gi
 
-            gi.require_version("Rsvg", "2.0")
-            from gi.repository import Rsvg
+                gi.require_version("Rsvg", "2.0")
+                from gi.repository import Rsvg
 
-            handle = Rsvg.Handle.new_from_file(str(path))
-            handle.set_stylesheet(b"svg { color: #ffffff; }")
-            viewport = Rsvg.Rectangle()
-            viewport.x = 1
-            viewport.y = 1
-            viewport.width = box.width - 2
-            viewport.height = box.height - 2
-            handle.render_document(mask_context, viewport)
+                handle = Rsvg.Handle.new_from_file(str(path))
+                handle.set_stylesheet(b"svg { color: #ffffff; }")
+                viewport = Rsvg.Rectangle()
+                viewport.x = 1
+                viewport.y = 1
+                viewport.width = box.width - 2
+                viewport.height = box.height - 2
+                handle.render_document(mask_context, viewport)
 
-        mask.flush()
+            mask.flush()
+            _LOGO_MASK_CACHE[cache_key] = mask
         ctx.set_source_rgb(*foreground)
         ctx.mask_surface(mask, box.x, box.y)
         return True
@@ -622,10 +682,6 @@ class LiveDisplaySession:
             dest_pitch=self.pitch,
             rotate90=self.card.rotate90,
         )
-        print(
-            f"scanout rotate90={self.card.rotate90} pitch={self.pitch} map={self.mapping.size()} mode={self.card.hdisplay}x{self.card.vdisplay}",
-            flush=True,
-        )
         clip = drmModeClip(0, 0, self.card.hdisplay, self.card.vdisplay)
         dirty = self.lib.drmModeDirtyFB(self.fd, self.fb_id, ctypes.byref(clip), 1)
         conn = ctypes.c_uint32(self.conn_id)
@@ -639,7 +695,6 @@ class LiveDisplaySession:
             1,
             ctypes.byref(self.mode),
         )
-        print(f"drmModeDirtyFB={dirty} drmModeSetCrtc={crtc}", flush=True)
         if dirty != 0:
             raise RuntimeError(f"drmModeDirtyFB failed while presenting the {description}: {dirty}")
         if crtc != 0:

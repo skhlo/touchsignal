@@ -31,6 +31,7 @@ The following facts were observed on 2026-08-29 without changing system state.
 | Omarchy | Omarchy `4.0.1` is active and the stock agents mark is available through the bar's font alias. | Reuse stock marks read-only while keeping TouchSignal's contrast independent from theme changes. |
 | Herdr | Herdr `0.8.2`, protocol `20`, exposes session snapshots, workspace order, focus, lifecycle status, stable IDs, commands, and event subscriptions. | Herdr is the authoritative source and action surface for workspace tiles. |
 | ChatGPT app | Hyprland reports the running app with class `chatgpt`. | Version 0.1 can verify closed, open, and focused states, but not internal task lifecycle. |
+| Thermals | CPU package temperature is exposed by `coretemp`; the AMD dGPU exposes runtime power state separately from its `edge` temperature sensor. | Runtime state is the mandatory oracle before any dGPU temperature access. |
 
 ## Architecture
 
@@ -128,6 +129,22 @@ active. When the dGPU is suspended or its state is unknown, the GPU temperature
 tile dims and shows `--°C`; there is no separate dGPU power tile. A hardware
 test must verify that the runtime-state query itself does not wake a suspended
 device before this polling path is accepted.
+
+### Thermal safety trust envelope
+
+| Invariant | Strength | Home | Oracle and seam | Disposition and proof |
+| --- | --- | --- | --- | --- |
+| A dGPU temperature read occurs only after the immediately preceding runtime verdict is `active`. | Enforced | `LiveThermalAdapter.snapshot()` | Injected file reader records every path access. | Placed. Active tests prove runtime-before-temperature order; suspended, unknown, unreadable, and discovery-bypass tests prove the temperature path is never reached. |
+| CPU and GPU tiles never emit a hardware action. | Enforced | Workflow touch routing | Product-seam actions are observed after touches in both thermal targets. | Placed. Thermal target tests produce no agent, workspace, or hardware action. |
+| CPU, GPU, and future power positions remain stable across source states. | Enforced | Workflow frame geometry | Product-seam frame targets. | Placed. Geometry tests cover the three right-cluster slots from unavailable through active snapshots. |
+
+The active on-device path resolves the CPU package sensor, observes an active
+dGPU runtime verdict, and displays the verified AMD edge temperature. The
+suspended on-device proof remains provisional because the current compositor
+session holds the AMD DRM device and prevents runtime suspension even when
+runtime power control is temporarily set to automatic. The test must be rerun
+in an iGPU-only compositor session; the temporary power-control probe restored
+its original value.
 
 The power-profile tile is the only interactive hardware tile. It opens explicit
 `Power saver`, `Balanced`, `Performance`, and `Cancel` choices and changes its

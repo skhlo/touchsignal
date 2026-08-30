@@ -16,6 +16,7 @@ from .live import LiveHost
 from .owner import OwnerError, TouchBarOwner
 from .restore import restore_firmware_row
 from .runtime import PreflightError, SupervisedRuntime, SupervisedRuntimeError
+from .thermal import LiveThermalAdapter, ThermalSource
 from .types import OBSERVED_BASELINE, firmware_row_restored
 from .workflow import ChatGPTWorkflow, HerdrWorkflow, WorkflowRenderer
 
@@ -183,14 +184,17 @@ def build_product_runtime(
     actions: ChatGPTActions | None = None,
     herdr_source: HerdrSource | None = None,
     herdr_actions: HerdrActions | None = None,
+    thermal_source: ThermalSource | None = None,
 ) -> SupervisedRuntime:
     adapter = LiveHyprlandChatGPTAdapter()
     chatgpt = ChatGPTWorkflow(source or adapter, actions or adapter)
     herdr_adapter = LiveHerdrAdapter()
+    thermal_adapter = LiveThermalAdapter()
     herdr = HerdrWorkflow(
         herdr_source or herdr_adapter,
         herdr_actions or herdr_adapter,
         chatgpt=chatgpt,
+        thermal_source=thermal_source or thermal_adapter,
     )
     return SupervisedRuntime(
         host,

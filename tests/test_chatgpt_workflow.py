@@ -9,6 +9,7 @@ from touchbar_owner.cli import build_product_runtime
 from touchbar_owner.chatgpt import (
     DesktopEntryResolver,
     HyprlandClient,
+    HyprlandSocketClient,
     HyprlandSnapshot,
     LiveHyprlandChatGPTAdapter,
     parse_active_address,
@@ -195,16 +196,18 @@ class ChatGPTWorkflowActionTests(unittest.TestCase):
         self.assertEqual(frame.chatgpt_tile.state, ChatGPTState.UNAVAILABLE)
         self.assertTrue(frame.safe_system_layer_available)
 
-    def test_focus_timeout_stays_unavailable_until_hyprland_verifies_focus(self) -> None:
+    def test_focus_timeout_recovers_to_open_and_allows_retry(self) -> None:
         clock = ManualClock()
         source = FakeHyprlandSource(
             HyprlandSnapshot(available=True, clients=(CHATGPT_CLIENT,), active_address=None)
         )
+        actions = FakeChatGPTActions()
         workflow = ChatGPTWorkflow(
             source,
-            FakeChatGPTActions(),
+            actions,
             clock=clock,
             pending_timeout=2.0,
+            failure_display_timeout=1.0,
         )
 
         workflow.process_touch_events([
@@ -214,15 +217,17 @@ class ChatGPTWorkflowActionTests(unittest.TestCase):
         clock.advance(2.0)
 
         self.assertEqual(workflow.frame().chatgpt_tile.state, ChatGPTState.UNAVAILABLE)
+        clock.advance(0.9)
         self.assertEqual(workflow.frame().chatgpt_tile.state, ChatGPTState.UNAVAILABLE)
 
-        source.current = HyprlandSnapshot(
-            available=True,
-            clients=(CHATGPT_CLIENT,),
-            active_address=CHATGPT_CLIENT.address,
-        )
+        clock.advance(0.1)
+        self.assertEqual(workflow.frame().chatgpt_tile.state, ChatGPTState.OPEN)
 
-        self.assertEqual(workflow.frame().chatgpt_tile.state, ChatGPTState.FOCUSED)
+        workflow.process_touch_events([
+            TouchEvent("down", 40, 20),
+            TouchEvent("up", 40, 20),
+        ])
+        self.assertEqual(actions.focused, [CHATGPT_CLIENT, CHATGPT_CLIENT])
 
     def test_touch_down_drag_away_restore_and_release_inside_commit_once(self) -> None:
         source = FakeHyprlandSource(
@@ -324,6 +329,47 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
 
 
 class ChatGPTAdapterParsingTests(unittest.TestCase):
+    def test_hyprland_socket_client_closes_after_one_json_response(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.connected: str | None = None
+                self.sent = b""
+                self.closed = False
+
+            def settimeout(self, _seconds: float) -> None:
+                return None
+
+            def connect(self, path: str) -> None:
+                self.connected = path
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent = payload
+
+            def recv(self, _size: int) -> bytes:
+                return b'[{"address":"0x1","class":"chatgpt"}]'
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FakeSocket()
+        client = HyprlandSocketClient(
+            environ={
+                "XDG_RUNTIME_DIR": "/run/user/1000",
+                "HYPRLAND_INSTANCE_SIGNATURE": "instance",
+            },
+            socket_factory=lambda: connection,
+        )
+
+        response = client.request("j/clients")
+
+        self.assertEqual(response, '[{"address":"0x1","class":"chatgpt"}]')
+        self.assertEqual(
+            connection.connected,
+            "/run/user/1000/hypr/instance/.socket.sock",
+        )
+        self.assertEqual(connection.sent, b"j/clients")
+        self.assertTrue(connection.closed)
+
     def test_live_snapshot_polling_is_bounded(self) -> None:
         clock = ManualClock()
 

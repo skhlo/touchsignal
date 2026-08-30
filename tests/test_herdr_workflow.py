@@ -16,6 +16,7 @@ from touchbar_owner.drm import (
     STATUS_SIGN_COLORS,
     TILE_ATTENTION_BACKGROUND,
     TILE_BACKGROUND,
+    _LOGO_MASK_CACHE,
     _draw_logo_asset,
     _tile_contrast,
     draw_runtime_frame,
@@ -419,12 +420,15 @@ class HerdrTilePresentationTests(unittest.TestCase):
 
     def test_color_logo_assets_are_applied_as_black_alpha_masks(self) -> None:
         class FakeSurface:
+            png_loads = 0
+
             def __init__(self, _format: object, width: int, height: int) -> None:
                 self.width = width
                 self.height = height
 
             @classmethod
             def create_from_png(cls, _path: str) -> FakeSurface:
+                cls.png_loads += 1
                 return cls("png", 512, 512)
 
             def get_width(self) -> int:
@@ -451,18 +455,30 @@ class HerdrTilePresentationTests(unittest.TestCase):
         context = RecordingContext()
         box = Geometry(10, 8, VISUAL_BOX_SIZE, VISUAL_BOX_SIZE)
 
-        with patch.dict(sys.modules, {"cairo": FakeCairo()}):
-            drawn = _draw_logo_asset(
-                context,
-                box,
-                "assets/agents/claude-logo-light.png",
-                DARK_INK,
-            )
+        _LOGO_MASK_CACHE.clear()
+        try:
+            with patch.dict(sys.modules, {"cairo": FakeCairo()}):
+                first = _draw_logo_asset(
+                    context,
+                    box,
+                    "assets/agents/claude-logo-light.png",
+                    DARK_INK,
+                )
+                second = _draw_logo_asset(
+                    context,
+                    box,
+                    "assets/agents/claude-logo-light.png",
+                    LIGHT_INK,
+                )
 
-        self.assertTrue(drawn)
-        self.assertEqual(context.colors[-1], DARK_INK)
-        self.assertEqual(len(context.masks), 1)
-        self.assertEqual(context.masks[0][1:], (box.x, box.y))
+            self.assertTrue(first)
+            self.assertTrue(second)
+            self.assertEqual(FakeSurface.png_loads, 1)
+            self.assertEqual(context.colors[-2:], [DARK_INK, LIGHT_INK])
+            self.assertEqual(len(context.masks), 2)
+            self.assertEqual(context.masks[0][1:], (box.x, box.y))
+        finally:
+            _LOGO_MASK_CACHE.clear()
 
 
 class HerdrFocusActionTests(unittest.TestCase):
