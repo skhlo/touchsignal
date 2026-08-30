@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 NATIVE_WIDTH = 2008
 NATIVE_HEIGHT = 60
 USB_VENDOR = "05ac"
 USB_PRODUCT = "8302"
+APPLE_INTERNAL_KEYBOARD_PRODUCT = "0340"
+APPLE_INTERNAL_KEYBOARD_NAME = "Apple Inc. Apple Internal Keyboard / Trackpad"
+USB_BUS = "0003"
+KEY_FN = 0x1D0
 FIRMWARE_CONFIG = "1"
 DRM_CONFIG = "2"
 TOUCH_MAX_X = 32767
@@ -73,9 +78,14 @@ class DrmCard:
 
 
 @dataclass(frozen=True)
-class TouchDevice:
+class InputDevice:
     name: str
     path: str
+    bus: str = ""
+    vendor: str = ""
+    product: str = ""
+    sysfs: str = ""
+    key_codes: frozenset[int] = frozenset()
 
     @property
     def is_firmware_keyboard(self) -> bool:
@@ -85,12 +95,37 @@ class TouchDevice:
     def is_touchbar_digitizer(self) -> bool:
         return "Touch Bar" in self.name and not self.is_firmware_keyboard
 
+    @property
+    def is_internal_keyboard(self) -> bool:
+        return (
+            self.name == APPLE_INTERNAL_KEYBOARD_NAME
+            and self.bus.casefold() == USB_BUS
+            and self.vendor.casefold() == USB_VENDOR
+            and self.product.casefold() == APPLE_INTERNAL_KEYBOARD_PRODUCT
+            and KEY_FN in self.key_codes
+        )
+
 
 @dataclass(frozen=True)
 class TouchEvent:
     kind: str
     x: int
     y: int
+
+
+@dataclass(frozen=True)
+class FnEvent:
+    kind: str
+
+
+class MediaAction(StrEnum):
+    BRIGHTNESS_DOWN = "brightness-down"
+    BRIGHTNESS_UP = "brightness-up"
+    PREVIOUS = "previous"
+    PLAY_PAUSE = "play-pause"
+    NEXT = "next"
+    VOLUME_DOWN = "volume-down"
+    VOLUME_UP = "volume-up"
 
 
 @dataclass
@@ -108,9 +143,21 @@ class RuntimeFrame:
 
 
 @dataclass(frozen=True)
+class RuntimeInput:
+    touches: tuple[TouchEvent, ...] = ()
+    fn_held: bool = False
+
+
+@dataclass(frozen=True)
+class RuntimeResult:
+    frame: RuntimeFrame
+    intents: tuple[MediaAction, ...] = ()
+
+
+@dataclass(frozen=True)
 class RuntimeAction:
     kind: str
-    touch: TouchEvent
+    touch: TouchEvent | None = None
 
 
 @dataclass

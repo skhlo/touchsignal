@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .surface import copy_logical_to_physical_scanout, test_surface_plan
+from .system_layer import MEDIA_LABELS, MediaLayerFrame
 from .types import DrmCard, NATIVE_HEIGHT, NATIVE_WIDTH, RuntimeFrame
 
 DRM_IOCTL_BASE = ord("d")
@@ -221,6 +222,11 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
     ctx.rectangle(0, 0, width, height)
     ctx.fill()
 
+    if isinstance(workflow, MediaLayerFrame):
+        for button in workflow.buttons:
+            _draw_media_button(ctx, button)
+        return
+
     tile = workflow.chatgpt_tile
     target = tile.target
     background, identity_ink = _tile_contrast(
@@ -251,6 +257,25 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
         ctx.set_source_rgb(*PANEL_BACKGROUND)
         ctx.rectangle(reserved.x, reserved.y, reserved.width, reserved.height)
         ctx.fill()
+
+
+def _draw_media_button(ctx, button) -> None:
+    target = button.target
+    background = TILE_PRESSED_BACKGROUND if button.pressed else PANEL_BACKGROUND
+    ctx.set_source_rgb(*background)
+    ctx.rectangle(target.x, target.y, target.width, target.height)
+    ctx.fill()
+    ctx.set_source_rgb(*LIGHT_INK)
+    ctx.select_font_face("Sans")
+    ctx.set_font_size(13)
+    _show_centered_text(
+        ctx,
+        MEDIA_LABELS[button.action],
+        target.x,
+        target.y,
+        target.width,
+        target.height,
+    )
 
 
 def _draw_logo_box(

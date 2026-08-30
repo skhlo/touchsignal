@@ -22,8 +22,8 @@ class DelayedDeviceHost(FakeHost):
         self.touch_lookups = 0
         self.backlight_lookups = 0
 
-    def list_touch_devices(self):
-        devices = super().list_touch_devices()
+    def list_input_devices(self):
+        devices = super().list_input_devices()
         self.touch_lookups += 1
         if self.touch_lookups <= self.touch_after:
             return [device for device in devices if not device.is_touchbar_digitizer]
@@ -60,7 +60,13 @@ class RediscoveryTests(unittest.TestCase):
             try:
                 self.assertEqual(
                     owner.state.claimed,
-                    {"display", "touch", "backlight", "virtual_input"},
+                    {
+                        "display",
+                        "touch",
+                        "backlight",
+                        "fn_input",
+                        "virtual_keyboard",
+                    },
                 )
                 self.assertGreater(host.touch_lookups, 1)
                 self.assertGreater(host.backlight_lookups, 1)
