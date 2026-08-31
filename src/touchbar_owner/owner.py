@@ -194,15 +194,18 @@ class TouchBarOwner:
         self.state.touch_events.extend(events)
         return events
 
-    def drain_input(self, touch_timeout: float = 0.0) -> RuntimeInput:
+    def drain_input(self, input_timeout: float = 0.0) -> RuntimeInput:
         if self._fn_input is None:
             raise OwnerError("Fn input is not claimed")
+        if self._touch is None:
+            raise OwnerError("touch is not claimed")
+        self.host.wait_for_input(self._fn_input, self._touch, input_timeout)
         for event in self._fn_input.read_events():
             if event.kind == "press":
                 self._fn_held = True
             elif event.kind == "release":
                 self._fn_held = False
-        touches = self.drain_touch(touch_timeout)
+        touches = self.drain_touch()
         return RuntimeInput(touches=tuple(touches), fn_held=self._fn_held)
 
     def dispatch_media_action(self, action: MediaAction) -> None:

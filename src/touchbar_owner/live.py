@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import os
 import platform
+import select
 from pathlib import Path
 
 from .attach import attach_touchbar
@@ -156,6 +157,14 @@ class LiveHost:
 
     def open_fn_input(self, device: InputDevice) -> LiveFnSession:
         return LiveFnSession(device)
+
+    def wait_for_input(
+        self,
+        fn_session: LiveFnSession,
+        touch_session: LiveTouchSession,
+        timeout: float,
+    ) -> None:
+        select.select([fn_session.fd, touch_session.fd], [], [], timeout)
 
     def open_backlight(self) -> LiveResourceSession:
         return open_backlight()

@@ -22,6 +22,7 @@ from touchbar_owner.input import (
     open_virtual_keyboard,
 )
 from touchbar_owner.host import FakeHost
+from touchbar_owner.live import LiveHost
 from touchbar_owner.owner import OwnerError, TouchBarOwner
 from touchbar_owner.types import (
     KEY_FN,
@@ -45,6 +46,21 @@ EXPECTED_MEDIA_KEY_CODES = {
 
 def input_event(event_type: int, code: int, value: int) -> bytes:
     return struct.pack(EVENT_FORMAT, 0, 0, event_type, code, value)
+
+
+class FdSession:
+    def __init__(self, fd: int) -> None:
+        self.fd = fd
+
+
+class InputWaitAdapterTests(unittest.TestCase):
+    def test_idle_wait_observes_fn_and_touch_descriptors_together(self) -> None:
+        host = LiveHost()
+
+        with patch("touchbar_owner.live.select.select") as wait:
+            host.wait_for_input(FdSession(11), FdSession(13), 0.5)
+
+        wait.assert_called_once_with([11, 13], [], [], 0.5)
 
 
 class FnInputAdapterTests(unittest.TestCase):

@@ -40,6 +40,12 @@ class Host(Protocol):
     def open_display(self, card: DrmCard) -> DisplaySession: ...
     def open_touch(self, device: InputDevice) -> TouchSession: ...
     def open_fn_input(self, device: InputDevice) -> FnSession: ...
+    def wait_for_input(
+        self,
+        fn_session: FnSession,
+        touch_session: TouchSession,
+        timeout: float,
+    ) -> None: ...
     def open_backlight(self) -> ResourceSession: ...
     def open_virtual_keyboard(self) -> VirtualKeyboardSession: ...
 
@@ -211,6 +217,7 @@ class FakeHost:
     queued_touch_events: list[TouchEvent] = field(default_factory=list)
     touch_read_timeouts: list[float] = field(default_factory=list)
     queued_fn_events: list[FnEvent] = field(default_factory=list)
+    input_wait_timeouts: list[float] = field(default_factory=list)
     emitted_media_actions: list[MediaAction] = field(default_factory=list)
     closed_sessions: list[str] = field(default_factory=list)
     operations: list[str] = field(default_factory=list)
@@ -377,6 +384,14 @@ class FakeHost:
         session = FakeFnSession(self.queued_fn_events, self.closed_sessions)
         self._fn_input = session
         return session
+
+    def wait_for_input(
+        self,
+        _fn_session: FakeFnSession,
+        _touch_session: FakeTouchSession,
+        timeout: float,
+    ) -> None:
+        self.input_wait_timeouts.append(timeout)
 
     def open_virtual_keyboard(self) -> FakeVirtualKeyboardSession:
         session = FakeVirtualKeyboardSession(
