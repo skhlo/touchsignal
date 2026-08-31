@@ -103,15 +103,15 @@ def copy_logical_to_physical_scanout(
         if needed > dest_u8.nbytes:
             raise ValueError(f"scanout dest is {dest_u8.nbytes} bytes, need {needed} for pitch {dest_pitch}")
         for y in range(height):
-            for x in range(width):
-                start = y * src_stride + x * 4
-                dest_x = height - 1 - y
-                dest_y = x
-                offset = dest_y * dest_pitch + dest_x * 4
-                dest_u8[offset] = src_u8[start]
-                dest_u8[offset + 1] = src_u8[start + 1]
-                dest_u8[offset + 2] = src_u8[start + 2]
-                dest_u8[offset + 3] = src_u8[start + 3]
+            src_start = y * src_stride
+            dest_start = (height - 1 - y) * 4
+            dest_stop = dest_start + width * dest_pitch
+            for channel in range(4):
+                dest_u8[
+                    dest_start + channel : dest_stop + channel : dest_pitch
+                ] = src_u8[
+                    src_start + channel : src_start + width * 4 + channel : 4
+                ]
         return
     limit = height * src_stride
     if limit > dest_u8.nbytes:

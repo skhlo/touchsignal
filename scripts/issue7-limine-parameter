@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import stat
+import subprocess
+import tempfile
+from pathlib import Path
+
+
+ISSUE_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_PATH = Path("/boot/limine.conf")
+BOOT_MOUNT = Path("/boot")
+BACKUP_PATH = ISSUE_ROOT / ".scratch" / "issue7-safe-limine.backup"
+FORCED_PARAMETER = "amdgpu.runpm=1"
+TARGET_KERNEL_ID = "linux-t2"
+
+
+class LimineProofError(RuntimeError):
+    pass
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _target_cmdline_index(lines: list[str]) -> int:
+    marker = f"comment: kernel-id={TARGET_KERNEL_ID}"
+    markers = [
+        index
+        for index, line in enumerate(lines)
+        if _indent(line) == 2 and line.strip() == marker
+    ]
+    if len(markers) != 1:
+        raise LimineProofError(
+            f"expected one top-level {TARGET_KERNEL_ID} entry, found {len(markers)}"
+        )
+
+    cmdlines: list[int] = []
+    for index in range(markers[0] + 1, len(lines)):
+        line = lines[index]
+        stripped = line.strip()
+        indent = _indent(line)
+        if stripped.startswith("/") and indent <= 2:
+            break
+        if indent == 2 and stripped.startswith("cmdline:"):
+            cmdlines.append(index)
+    if len(cmdlines) != 1:
+        raise LimineProofError(
+            f"expected one cmdline in the top-level {TARGET_KERNEL_ID} entry, "
+            f"found {len(cmdlines)}"
+        )
+    return cmdlines[0]
+
+
+def patch_config(original: bytes, parameter: str = FORCED_PARAMETER) -> bytes:
+    try:
+        text = original.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise LimineProofError("Limine configuration is not UTF-8") from exc
+    lines = text.splitlines(keepends=True)
+    index = _target_cmdline_index(lines)
+    line = lines[index]
+    ending = "\n" if line.endswith("\n") else ""
+    body = line[: -len(ending)] if ending else line
+    _key, separator, value = body.partition(":")
+    if not separator:
+        raise LimineProofError("target cmdline is malformed")
+    tokens = value.split()
+    if parameter in tokens:
+        raise LimineProofError(f"{parameter} is already in the saved cmdline")
+    lines[index] = f"{body} {parameter}{ending}"
+    patched = "".join(lines).encode("utf-8")
+    if patched.count(parameter.encode("utf-8")) != original.count(
+        parameter.encode("utf-8")
+    ) + 1:
+        raise LimineProofError("the forced parameter was not added exactly once")
+    return patched
+
+
+def classify_config(
+    current: bytes,
+    original: bytes,
+    parameter: str = FORCED_PARAMETER,
+) -> str:
+    patched = patch_config(original, parameter)
+    if current == original:
+        return "restored"
+    if current == patched:
+        return "prepared"
+    return "mismatch"
+
+
+def _sha256(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _read_regular(path: Path) -> bytes:
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode):
+        raise LimineProofError(f"refusing non-regular file: {path}")
+    return path.read_bytes()
+
+
+def _create_backup(original: bytes) -> None:
+    BACKUP_PATH.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(BACKUP_PATH, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(original)
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        os.close(descriptor)
+    directory = os.open(BACKUP_PATH.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _mount_info() -> tuple[str, tuple[str, ...]]:
+    completed = subprocess.run(
+        [
+            "findmnt",
+            "--json",
+            "--target",
+            str(CONFIG_PATH),
+            "--output",
+            "TARGET,FSTYPE,OPTIONS",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    filesystems = json.loads(completed.stdout).get("filesystems")
+    if not isinstance(filesystems, list) or len(filesystems) != 1:
+        raise LimineProofError("the Limine mount could not be resolved uniquely")
+    filesystem = filesystems[0]
+    if filesystem.get("target") != str(BOOT_MOUNT):
+        raise LimineProofError(
+            "Limine configuration is not on the expected /boot mount"
+        )
+    if filesystem.get("fstype") != "vfat":
+        raise LimineProofError("the /boot mount is not VFAT")
+    options = filesystem.get("options")
+    if not isinstance(options, str):
+        raise LimineProofError("the /boot mount options are unavailable")
+    return filesystem["fstype"], tuple(options.split(","))
+
+
+def _remount(options: tuple[str, ...]) -> None:
+    subprocess.run(
+        ["mount", "-o", "remount," + ",".join(options), str(BOOT_MOUNT)],
+        check=True,
+    )
+
+
+def _atomic_write(path: Path, value: bytes) -> None:
+    mode = stat.S_IMODE(path.stat().st_mode)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".touchsignal-limine-",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            try:
+                os.fsync(directory)
+            except OSError:
+                os.sync()
+        finally:
+            os.close(directory)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _replace_config(value: bytes) -> None:
+    previous = _read_regular(CONFIG_PATH)
+    _fstype, options = _mount_info()
+    originally_read_only = "ro" in options
+    if originally_read_only:
+        writable_options = tuple(
+            "rw" if option == "ro" else option for option in options
+        )
+        _remount(writable_options)
+    try:
+        try:
+            _atomic_write(CONFIG_PATH, value)
+            if _read_regular(CONFIG_PATH) != value:
+                raise LimineProofError("Limine configuration verification failed")
+        except Exception as write_error:
+            try:
+                if _read_regular(CONFIG_PATH) != previous:
+                    _atomic_write(CONFIG_PATH, previous)
+            except Exception as rollback_error:
+                raise LimineProofError(
+                    "Limine write failed and its previous content could not be "
+                    "restored: "
+                    f"{rollback_error}"
+                ) from write_error
+            raise
+    finally:
+        if originally_read_only:
+            _remount(options)
+    _fstype, restored_options = _mount_info()
+    if set(restored_options) != set(options):
+        raise LimineProofError("the /boot mount options were not restored")
+
+
+def prepare() -> dict[str, object]:
+    current = _read_regular(CONFIG_PATH)
+    if BACKUP_PATH.exists():
+        original = _read_regular(BACKUP_PATH)
+    else:
+        patch_config(current)
+        _create_backup(current)
+        original = current
+    state = classify_config(current, original)
+    if state == "mismatch":
+        raise LimineProofError("active Limine config does not match its proof backup")
+    patched = patch_config(original)
+    if state == "restored":
+        _replace_config(patched)
+    if classify_config(_read_regular(CONFIG_PATH), original) != "prepared":
+        raise LimineProofError("the forced Limine config is not active on disk")
+    return {
+        "action": "prepare",
+        "prepared": True,
+        "original_sha256": _sha256(original),
+        "active_sha256": _sha256(patched),
+    }
+
+
+def restore() -> dict[str, object]:
+    original = _read_regular(BACKUP_PATH)
+    current = _read_regular(CONFIG_PATH)
+    state = classify_config(current, original)
+    if state == "mismatch":
+        raise LimineProofError("active Limine config does not match its proof backup")
+    if state == "prepared":
+        _replace_config(original)
+    if _read_regular(CONFIG_PATH) != original:
+        raise LimineProofError("the original Limine config was not restored")
+    return {
+        "action": "restore",
+        "restored": True,
+        "original_sha256": _sha256(original),
+        "active_sha256": _sha256(original),
+    }
+
+
+def verify() -> dict[str, object]:
+    original = _read_regular(BACKUP_PATH)
+    current = _read_regular(CONFIG_PATH)
+    restored = current == original
+    if not restored:
+        raise LimineProofError("the active Limine config differs from its proof backup")
+    return {
+        "action": "verify",
+        "restored": True,
+        "original_sha256": _sha256(original),
+        "active_sha256": _sha256(current),
+    }
+
+
+def cleanup() -> dict[str, object]:
+    result = verify()
+    BACKUP_PATH.unlink()
+    result["action"] = "cleanup"
+    result["backup_removed"] = True
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=("prepare", "restore", "verify", "cleanup"))
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        print(json.dumps({"success": False, "error": "root permission is required"}))
+        return 1
+    try:
+        result = globals()[args.action]()
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+                sort_keys=True,
+            )
+        )
+        return 1
+    result["success"] = True
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

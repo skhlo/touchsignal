@@ -67,6 +67,47 @@ class ChatGPTActions(Protocol):
     def request_launch(self) -> None: ...
 
 
+class UnixSocket(Protocol):
+    def settimeout(self, seconds: float) -> None: ...
+    def connect(self, path: str) -> None: ...
+    def sendall(self, payload: bytes) -> None: ...
+    def recv(self, size: int) -> bytes: ...
+    def close(self) -> None: ...
+
+
+def _unix_socket() -> UnixSocket:
+    return socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+
+class HyprlandSocketClient:
+    def __init__(
+        self,
+        *,
+        environ: Mapping[str, str] | None = None,
+        socket_factory: Callable[[], UnixSocket] = _unix_socket,
+    ) -> None:
+        self.environ = os.environ if environ is None else environ
+        self.socket_factory = socket_factory
+
+    def request(self, command: str) -> str:
+        runtime_dir = self.environ.get("XDG_RUNTIME_DIR")
+        signature = self.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+        if not runtime_dir or not signature:
+            raise OSError("Hyprland IPC environment is unavailable")
+        path = Path(runtime_dir) / "hypr" / signature / ".socket.sock"
+        client = self.socket_factory()
+        try:
+            client.settimeout(2.0)
+            client.connect(str(path))
+            client.sendall(command.encode("utf-8"))
+            response = client.recv(4 * 1024 * 1024)
+        finally:
+            client.close()
+        if not response:
+            raise OSError("Hyprland IPC returned no response")
+        return response.decode("utf-8")
+
+
 class HyprlandEventStream(Protocol):
     def __enter__(self) -> HyprlandEventStream: ...
     def __exit__(self, *_args) -> None: ...
@@ -129,6 +170,7 @@ class LiveHyprlandChatGPTAdapter:
         *,
         clock: Callable[[], float] = monotonic,
         snapshot_interval: float = 4.0,
+        ipc: HyprlandSocketClient | None = None,
         environ: Mapping[str, str] | None = None,
         event_socket_factory: Callable[[], HyprlandEventSocket] = _hyprland_event_socket,
         sleep: Callable[[float], None] = default_sleep,
@@ -139,6 +181,7 @@ class LiveHyprlandChatGPTAdapter:
         self.clock = clock
         self.snapshot_interval = snapshot_interval
         self.environ = os.environ if environ is None else environ
+        self.ipc = ipc or HyprlandSocketClient(environ=self.environ)
         self.event_socket_factory = event_socket_factory
         self.sleep = sleep
         self._reconnect_backoff = CappedReconnectBackoff(
@@ -231,10 +274,13 @@ class LiveHyprlandChatGPTAdapter:
         return self.snapshot()
 
     def request_focus(self, client: HyprlandClient) -> None:
-        subprocess.run(
-            ["hyprctl", "dispatch", "focuswindow", f"address:{client.address}"],
-            check=False,
-        )
+        try:
+            self.ipc.request(f"dispatch focuswindow address:{client.address}")
+        except OSError:
+            subprocess.run(
+                ["hyprctl", "dispatch", "focuswindow", f"address:{client.address}"],
+                check=False,
+            )
 
     def request_launch(self) -> None:
         entry = DesktopEntryResolver().chatgpt_entry()
@@ -242,14 +288,18 @@ class LiveHyprlandChatGPTAdapter:
         subprocess.Popen(command)
 
     def _json(self, command: list[str]) -> object:
-        completed = subprocess.run(
-            command,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        return json.loads(completed.stdout)
+        try:
+            response = self.ipc.request(f"j/{command[-1]}")
+        except OSError:
+            completed = subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            response = completed.stdout
+        return json.loads(response)
 
 
 @dataclass(frozen=True)

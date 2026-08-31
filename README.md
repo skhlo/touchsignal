@@ -78,13 +78,19 @@ agent tiles return.
 Install or remove the user service with:
 
 ```bash
+sudo install -Dm0644 systemd/modules-load.d/touchsignal.conf \
+  /etc/modules-load.d/touchsignal.conf
+sudo modprobe uinput
 python3 scripts/install-touchsignal-runtime
 python3 scripts/remove-touchsignal-runtime
 ```
 
-These commands write or remove only the user unit under
-`~/.config/systemd/user/`. Removal disables the service and runs the firmware-row
-restore command.
+The privileged prerequisite makes `/dev/uinput` available before the enabled
+user service starts after a reboot. The two Python commands write or remove only
+the user unit under `~/.config/systemd/user/`. Removal disables the service and
+runs the firmware-row restore command. To reverse the boot prerequisite, remove
+`/etc/modules-load.d/touchsignal.conf`; this does not unload the module from the
+current boot.
 
 ## Documents
 

@@ -18,6 +18,7 @@ from .owner import OwnerError, TouchBarOwner
 from .restore import restore_firmware_row
 from .runtime import PreflightError, SupervisedRuntime, SupervisedRuntimeError
 from .safeguards import PixelShiftRenderer
+from .thermal import LiveThermalAdapter, ThermalSource
 from .system_layer import (
     LiveOmarchyLockSource,
     LockStateSource,
@@ -190,16 +191,19 @@ def build_product_runtime(
     actions: ChatGPTActions | None = None,
     herdr_source: HerdrSource | None = None,
     herdr_actions: HerdrActions | None = None,
+    thermal_source: ThermalSource | None = None,
     lock_source: LockStateSource | None = None,
     pixel_shift_clock: Callable[[], float] | None = None,
 ) -> SupervisedRuntime:
     adapter = LiveHyprlandChatGPTAdapter()
     chatgpt = ChatGPTWorkflow(source or adapter, actions or adapter)
     herdr_adapter = LiveHerdrAdapter()
+    thermal_adapter = LiveThermalAdapter()
     herdr = HerdrWorkflow(
         herdr_source or herdr_adapter,
         herdr_actions or herdr_adapter,
         chatgpt=chatgpt,
+        thermal_source=thermal_source or thermal_adapter,
     )
     system_layer = SystemLayerWorkflow(
         herdr,
@@ -228,7 +232,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     try:
         while not stop["value"]:
             try:
-                runtime.run_supervised(cycles=1, max_restarts=0)
+                runtime.run_supervised(
+                    cycles=1,
+                    max_restarts=0,
+                    touch_timeout=args.poll_interval,
+                )
             except PreflightError as exc:
                 if runtime.state.running:
                     rc = 1
@@ -245,7 +253,6 @@ def cmd_run(args: argparse.Namespace) -> int:
             restarts = 0
             if not runtime.state.running and not host.graphical_session_ready():
                 break
-            time.sleep(args.poll_interval)
     finally:
         try:
             runtime.stop()
@@ -262,7 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("restore", help="restore USB config 1, special-key mode, Fn, autodim, and brightness").set_defaults(func=cmd_restore)
     sub.add_parser("preflight", help="verify that the runtime may claim the Touch Bar").set_defaults(func=cmd_preflight)
     run = sub.add_parser("run", help="run the supervised Touch Bar owner")
-    run.add_argument("--poll-interval", type=float, default=0.05)
+    run.add_argument("--poll-interval", type=float, default=0.5)
     run.add_argument("--restart-delay", type=float, default=1.0)
     run.add_argument("--max-restarts", type=int, default=3)
     run.set_defaults(func=cmd_run)

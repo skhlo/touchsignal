@@ -175,6 +175,18 @@ class RuntimeOperationTests(unittest.TestCase):
             finally:
                 runtime.stop()
 
+    def test_process_waits_on_touch_input_for_the_refresh_interval(self) -> None:
+        with TemporaryDirectory() as raw:
+            host = FakeHost(Path(raw))
+            runtime = SupervisedRuntime(host)
+            runtime.start()
+            try:
+                runtime.process_once(touch_timeout=0.25)
+            finally:
+                runtime.stop()
+
+            self.assertEqual(host.touch_read_timeouts[-1], 0.25)
+
     def test_runtime_carries_touch_through_normalized_input_and_frame(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
@@ -242,6 +254,14 @@ class RuntimeOperationTests(unittest.TestCase):
 
 
 class RuntimeInstallTests(unittest.TestCase):
+    def test_runtime_package_loads_uinput_at_boot(self) -> None:
+        config = (
+            Path(__file__).resolve().parents[1]
+            / "systemd/modules-load.d/touchsignal.conf"
+        )
+
+        self.assertEqual(config.read_text(encoding="utf-8"), "uinput\n")
+
     def test_service_template_starts_after_graphical_session_and_restores_on_stop(self) -> None:
         service = render_user_service(Path("/usr/bin/touchsignal-touchbar-owner"))
 

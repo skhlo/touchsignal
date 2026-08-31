@@ -13,6 +13,16 @@ from .herdr import (
     HerdrSource,
     HerdrWorkspace,
 )
+from .thermal import (
+    CPU_HOT_C,
+    CPU_WARM_C,
+    GPU_HOT_C,
+    GPU_WARM_C,
+    GpuRuntimeState,
+    ThermalSnapshot,
+    ThermalSource,
+    temperature_band,
+)
 from .types import (
     NATIVE_HEIGHT,
     NATIVE_WIDTH,
@@ -33,6 +43,12 @@ HERDR_SLOT_COUNT = 4
 VISUAL_BOX_SIZE = 30
 TOUCH_SLOP = 10
 DEFAULT_PENDING_TIMEOUT = 5.0
+DEFAULT_FAILURE_DISPLAY_TIMEOUT = 2.0
+CPU_TARGET_WIDTH = 148
+GPU_TARGET_WIDTH = 148
+HARDWARE_TARGET_HEIGHT = 46
+HARDWARE_GAP = 6
+HARDWARE_RIGHT_PADDING = 8
 
 
 class ChatGPTState(StrEnum):
@@ -165,6 +181,19 @@ class EmptyTileFrame:
 
 
 @dataclass(frozen=True)
+class TemperatureTileFrame:
+    target: Geometry
+    label: str
+    value: str
+    celsius: int | None
+    available: bool
+    dimmed: bool
+    attention: bool
+    band: str
+    runtime_state: str | None = None
+
+
+@dataclass(frozen=True)
 class PendingRequest:
     kind: PendingKind
     started_at: float
@@ -180,6 +209,8 @@ class WorkflowFrame:
     chatgpt_tile: ChatGPTTileFrame
     herdr_tiles: tuple[HerdrTileFrame, ...] = ()
     empty_slots: tuple[EmptyTileFrame, ...] = ()
+    cpu_temperature: TemperatureTileFrame | None = None
+    gpu_temperature: TemperatureTileFrame | None = None
     reserved_center: Geometry | None = None
     safe_system_layer_available: bool = True
 
@@ -202,11 +233,13 @@ class ChatGPTWorkflow:
         *,
         clock: Clock = monotonic,
         pending_timeout: float = DEFAULT_PENDING_TIMEOUT,
+        failure_display_timeout: float = DEFAULT_FAILURE_DISPLAY_TIMEOUT,
     ) -> None:
         self.source = source
         self.actions = actions
         self.clock = clock
         self.pending_timeout = pending_timeout
+        self.failure_display_timeout = failure_display_timeout
         self.pending: PendingRequest | None = None
         self.press: PressState | None = None
         self.last_snapshot = HyprlandSnapshot.unavailable()
@@ -334,6 +367,13 @@ class ChatGPTWorkflow:
             focused = self.last_snapshot.focused_chatgpt
             if focused is not None and focused.address == self.timed_out_request.client_address:
                 self.timed_out_request = None
+                return
+        if (
+            self.last_snapshot.available
+            and self.clock() - self.timed_out_request.started_at
+            >= self.pending_timeout + self.failure_display_timeout
+        ):
+            self.timed_out_request = None
 
     def _presentation_state(self) -> ChatGPTState:
         if not self.last_snapshot.available or self.timed_out_request is not None:
@@ -388,6 +428,25 @@ def herdr_slot_geometry(index: int) -> Geometry:
     )
 
 
+def gpu_temperature_geometry() -> Geometry:
+    return Geometry(
+        x=NATIVE_WIDTH - HARDWARE_RIGHT_PADDING - GPU_TARGET_WIDTH,
+        y=(NATIVE_HEIGHT - HARDWARE_TARGET_HEIGHT) // 2,
+        width=GPU_TARGET_WIDTH,
+        height=HARDWARE_TARGET_HEIGHT,
+    )
+
+
+def cpu_temperature_geometry() -> Geometry:
+    gpu = gpu_temperature_geometry()
+    return Geometry(
+        x=gpu.x - HARDWARE_GAP - CPU_TARGET_WIDTH,
+        y=(NATIVE_HEIGHT - HARDWARE_TARGET_HEIGHT) // 2,
+        width=CPU_TARGET_WIDTH,
+        height=HARDWARE_TARGET_HEIGHT,
+    )
+
+
 def chatgpt_visual_boxes(target: Geometry) -> tuple[Geometry, Geometry]:
     gap = 7
     pair_width = VISUAL_BOX_SIZE * 2 + gap
@@ -432,6 +491,10 @@ def _herdr_state_token(state: HerdrState) -> str:
     return STATE_TOKENS[state]
 
 
+def _temperature_value(celsius: int | None) -> str:
+    return f"{celsius}°C" if celsius is not None else "--°C"
+
+
 def _status_sign(state: ChatGPTState) -> str:
     signs = {
         ChatGPTState.CLOSED: "dot",
@@ -450,6 +513,7 @@ class HerdrWorkflow:
         actions: HerdrActions,
         *,
         chatgpt: ChatGPTWorkflow | None = None,
+        thermal_source: ThermalSource | None = None,
         clock: Clock = monotonic,
         pending_timeout: float = DEFAULT_PENDING_TIMEOUT,
     ) -> None:
@@ -464,6 +528,8 @@ class HerdrWorkflow:
         self.failed_request: PendingRequest | None = None
         self._last_selected: tuple[HerdrWorkspace, ...] = ()
         self._chatgpt = chatgpt
+        self._thermal_source = thermal_source
+        self.last_thermal_snapshot = ThermalSnapshot.unavailable()
         self._refresh_requested = True
         self.source.subscribe(self._request_refresh)
 
@@ -491,6 +557,8 @@ class HerdrWorkflow:
             self.last_snapshot = self.source.snapshot()
             if self.last_snapshot.available:
                 self._last_selected = _selected_workspaces(self.last_snapshot)
+        if self._thermal_source is not None:
+            self.last_thermal_snapshot = self._thermal_source.snapshot()
         self._settle_pending()
         self._settle_timed_out_request()
         self._settle_failed_request()
@@ -528,19 +596,57 @@ class HerdrWorkflow:
             else:
                 empty.append(EmptyTileFrame(target=target))
         last_target = herdr_slot_geometry(HERDR_SLOT_COUNT - 1)
+        cpu_temperature, gpu_temperature = self._temperature_frames()
+        cpu_target = cpu_temperature_geometry()
         return WorkflowFrame(
             surface_size=(NATIVE_WIDTH, NATIVE_HEIGHT),
             chatgpt_tile=self._chatgpt_frame(),
             herdr_tiles=tuple(occupied),
             empty_slots=tuple(empty),
+            cpu_temperature=cpu_temperature,
+            gpu_temperature=gpu_temperature,
             reserved_center=Geometry(
                 x=last_target.right + 1,
                 y=0,
-                width=NATIVE_WIDTH - (last_target.right + 1),
+                width=cpu_target.x - (last_target.right + 1),
                 height=NATIVE_HEIGHT,
             ),
             safe_system_layer_available=True,
         )
+
+    def _temperature_frames(
+        self,
+    ) -> tuple[TemperatureTileFrame, TemperatureTileFrame]:
+        snapshot = self.last_thermal_snapshot
+        cpu = snapshot.cpu
+        cpu_band = temperature_band(cpu.celsius, CPU_WARM_C, CPU_HOT_C)
+        cpu_frame = TemperatureTileFrame(
+            target=cpu_temperature_geometry(),
+            label="CPU",
+            value=_temperature_value(cpu.celsius),
+            celsius=cpu.celsius,
+            available=cpu.available,
+            dimmed=not cpu.available,
+            attention=not cpu.available or cpu_band == "hot",
+            band=cpu_band,
+        )
+
+        gpu = snapshot.gpu
+        gpu_active = snapshot.gpu_runtime == GpuRuntimeState.ACTIVE
+        gpu_available = gpu_active and gpu.available
+        gpu_band = temperature_band(gpu.celsius, GPU_WARM_C, GPU_HOT_C)
+        gpu_frame = TemperatureTileFrame(
+            target=gpu_temperature_geometry(),
+            label="GPU",
+            value=_temperature_value(gpu.celsius if gpu_available else None),
+            celsius=gpu.celsius if gpu_available else None,
+            available=gpu_available,
+            dimmed=not gpu_available,
+            attention=gpu_available and gpu_band == "hot",
+            band=gpu_band if gpu_available else "normal",
+            runtime_state=snapshot.gpu_runtime.value,
+        )
+        return cpu_frame, gpu_frame
 
     def _chatgpt_frame(self) -> ChatGPTTileFrame:
         if self._chatgpt is not None:

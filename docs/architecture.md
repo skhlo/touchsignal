@@ -31,6 +31,7 @@ The following facts were observed on 2026-08-29 without changing system state.
 | Omarchy | Omarchy `4.0.1` is active and the stock agents mark is available through the bar's font alias. | Reuse stock marks read-only while keeping TouchSignal's contrast independent from theme changes. |
 | Herdr | Herdr `0.8.2`, protocol `20`, exposes session snapshots, workspace order, focus, lifecycle status, stable IDs, commands, and event subscriptions. | Herdr is the authoritative source and action surface for workspace tiles. |
 | ChatGPT app | Hyprland reports the running app with class `chatgpt`. | Version 0.1 can verify closed, open, and focused states, but not internal task lifecycle. |
+| Thermals | CPU package temperature is exposed by `coretemp`; the AMD dGPU exposes runtime power state separately from its `edge` temperature sensor. | Runtime state is the mandatory oracle before any dGPU temperature access. |
 
 ## Architecture
 
@@ -120,8 +121,9 @@ The workflow layer has three stable regions.
    four-workspace state therefore has five visible agent tiles.
 2. The center is reserved for future contextual information. Version 0.1 does not
    move the agent dock into this space.
-3. The right hardware cluster contains only CPU temperature, GPU temperature,
-   and the power-profile control.
+3. The right hardware cluster contains only CPU and GPU temperature. Removing
+   the planned power-profile control shifts both read-only tiles one button to
+   the right and keeps the GPU tile eight pixels from the physical edge.
 
 Each agent hit target is 112 by 46 pixels. The logo and status sign sit side by
 side in equal 30-pixel boxes. Prototype letters stand in for final agent logos.
@@ -135,12 +137,89 @@ CPU and GPU temperatures are read-only. The GPU adapter reads dGPU runtime state
 first and accesses the temperature source only when that state already reports
 active. When the dGPU is suspended or its state is unknown, the GPU temperature
 tile dims and shows `--°C`; there is no separate dGPU power tile. A hardware
-test must verify that the runtime-state query itself does not wake a suspended
-device before this polling path is accepted.
+re-test must verify that the runtime-state query itself does not wake a
+suspended device once a future kernel or driver can produce that state on this
+machine. Version 0.1 accepts the enforced runtime-first adapter guard and the
+verified active-device path under the waiver recorded below.
 
-The power-profile tile is the only interactive hardware tile. It opens explicit
-`Power saver`, `Balanced`, `Performance`, and `Cancel` choices and changes its
-label only after the system source verifies the selected profile.
+Thermal sources sample every two seconds. Presentation republishes immediately
+when availability, dGPU runtime state, severity band, or a three-degree change
+occurs, and at least once every 30 seconds otherwise. This keeps exact values
+fresh without repainting the full DRM surface for one-degree sensor jitter.
+
+### Thermal safety trust envelope
+
+| Invariant | Strength | Home | Oracle and seam | Disposition and proof |
+| --- | --- | --- | --- | --- |
+| A dGPU temperature read occurs only after the immediately preceding runtime verdict is `active`. | Enforced | `LiveThermalAdapter.snapshot()` | Injected file reader records every path access. | Placed. Active tests prove runtime-before-temperature order; suspended, unknown, unreadable, and discovery-bypass tests prove the temperature path is never reached. |
+| CPU and GPU tiles never emit a hardware action. | Enforced | Workflow touch routing | Product-seam actions are observed after touches in both thermal targets. | Placed. Thermal target tests produce no agent, workspace, or hardware action. |
+| CPU and GPU positions remain stable at the right edge across source states. | Enforced | Workflow frame geometry | Product-seam frame targets. | Placed. Geometry tests cover both right-aligned temperature tiles from unavailable through active snapshots. |
+| Version 0.1 may ship without physical suspended-state certification when the target driver cannot produce a suspended dGPU with zero holders. | Trusted | Recorded 0.1 hardware waiver | Completed forced-BACO proof and restored result evidence | Placed. The current kernel remained active after forced runtime PM, an iGPU-only session, zero dGPU holders, and a 15-second wait. Re-test after a kernel or AMD driver update can make this device report `suspended`. |
+
+The active on-device path resolves the CPU package sensor, observes an active
+dGPU runtime verdict, and displays the verified AMD edge temperature. The
+suspended on-device proof remains provisional after an iGPU-only compositor
+session released every dGPU device holder: temporary automatic runtime control
+still left the AMD function active, and its suspended-time counter remained
+zero. The installed driver's automatic `amdgpu.runpm=-1` policy is read-only at
+runtime.
+
+A later forced-runtime-PM attempt stopped before the hardware probe. Its Limine
+edit was not active after reboot, while a prewritten `/dev/dri/card1` compositor
+override survived. DRM enumeration changed from Intel card1 and AMD card2 to
+Intel card0 and AMD card1, so the override selected AMD and Hyprland exposed a
+zero-sized internal output with no modes. Removing the override and booting
+normally restored the 3072 by 1920 display. The attempt produced no suspended
+GPU evidence and invalidated every proof flow that carries a DRM card number
+across a reboot.
+
+The replacement proof verifies `amdgpu.runpm=1` before it writes a compositor
+override. Because Limine's editor can boot only with F10 and the MacBook's F10
+key is on the unavailable preboot Touch Bar, the wizard does not use the editor.
+A privileged helper backs up `/boot/limine.conf`, atomically appends the forced
+parameter to exactly one top-level `linux-t2` cmdline, and returns the VFAT mount
+to read-only before reboot. On the forced boot, it restores and byte-compares
+the original Limine config before the wizard can change UWSM. The UWSM
+environment then resolves the Intel PCI function `0000:00:02.0` to the current
+DRM node every time the session starts and unsets the override when that
+identity is absent. It uses a same-boot logout for the iGPU-only session.
+Reboot, GPU identity, monitor health, TouchSignal health, and dGPU holder gates
+all precede the privileged probe.
+
+The complete forced-BACO proof ran on 2026-08-31. The kernel reported
+`amdgpu.runpm=1`, the iGPU-only compositor had one healthy internal monitor,
+and no process held the AMD DRM node. After the probe changed
+`power/control` from `on` to `auto` and waited 15 seconds, runtime state was
+still `active`. The adapter therefore followed its active path and read the
+three AMD hwmon discovery and temperature files; runtime state remained active
+afterward. The probe restored `power/control` to `on`. A normal reboot restored
+`amdgpu.runpm=-1`, the original Limine bytes and read-only mount options, the
+absent UWSM override, one healthy monitor, and the TouchSignal service. This is
+a conclusive driver/platform limitation for the current kernel: the required
+suspended starting state cannot be produced, so the suspended-device acceptance
+criterion is waived for version 0.1 rather than falsely marked passed. The
+waiver does not weaken the runtime-first adapter guard. Physical certification
+returns as a gate after a kernel or AMD driver update can suspend the device
+with zero holders.
+
+The resumable proof workflow is saved as:
+
+```bash
+scripts/issue7-suspended-gpu-proof
+```
+
+Run the same command after each reboot or logout. It stores only temporary
+state, backups, and result evidence under the ignored `.scratch/` directory.
+
+### Hardware proof safety trust envelope
+
+| Invariant | Strength | Home | Oracle and seam | Disposition and proof |
+| --- | --- | --- | --- | --- |
+| The forced boot changes only the top-level `linux-t2` cmdline and never depends on a Touch Bar function key. | Enforced | `scripts/issue7-limine-parameter` parser and wizard prepare stage | Limine fixture with top-level and snapshot `linux-t2` entries, plus saved wizard text | Placed. The mutation test proves only the top-level cmdline gains one parameter; ambiguous top-level entries are rejected; the instruction test rejects F10. |
+| The original Limine config and read-only ESP state return before any UWSM change or later reboot. | Enforced | Privileged Limine helper and `awaiting_forced_boot` transition | Byte comparison against the exclusive backup, `findmnt` mount options, and state-machine ordering | Placed. Restore and verify are mandatory before the UWSM write path; mismatched active config is rejected instead of overwritten. |
+| A compositor override is never written until the forced runtime-PM boot is verified. | Enforced | Parameter-first proof state transition | `/proc/cmdline` and the loaded amdgpu `runpm` value before the UWSM write stage | Placed. A normal boot without the requested parameter stops before backup or override creation. |
+| A temporary compositor override never carries a DRM card number across a reboot. | Enforced | PCI-resolving UWSM environment snippet | The resolved DRM node must link to Intel PCI `0000:00:02.0`; Hyprland must then report one nonzero enabled monitor. | Placed. The live selector resolved Intel by PCI identity; mutation to an absent PCI identity unset a stale override instead of selecting a card. |
+| The enabled TouchSignal service has `/dev/uinput` available after reboot. | Enforced | `systemd/modules-load.d/touchsignal.conf` | `/dev/uinput` writability plus service preflight after login | Placed. The installed file matched byte-for-byte, `/dev/uinput` was writable, and the service passed preflight after both proof reboots and the final normal reboot. |
 
 ### Herdr workspace selection
 
@@ -183,6 +262,9 @@ The ChatGPT app tile is always present.
 
 The exact launch command will be discovered from the installed desktop entry at
 implementation time rather than embedded as an Omarchy-specific shell command.
+Hyprland state and focus actions use its synchronous Unix IPC socket directly;
+the adapter closes every request connection immediately and falls back to
+`hyprctl` only when the socket is unavailable.
 
 The live adapter listens to Hyprland's event socket for active-window, window
 open, and window close events. Those events invalidate the cached snapshot so
@@ -229,6 +311,10 @@ State changes use an immediate update or a short cross-fade. They do not slide
 the entire row or use decorative looping motion. The tile layout remains stable
 as labels and states update.
 
+The owner waits on the touch file descriptor with a 500-millisecond idle source
+refresh timeout. A real touch wakes the wait immediately, while idle operation
+avoids a fixed high-frequency polling loop.
+
 The product renderer mitigates OLED burn-in by moving all visible workflow
 content through a deterministic nine-position, one-pixel pattern once per
 minute. The black panel background, touch targets, and action geometry remain
@@ -255,6 +341,10 @@ The supervisor starts only after graphical login and uses restart-on-failure.
 It quiesces and closes hardware before suspend, rediscovers devices after
 resume, and restores the firmware row if reattachment fails. It must not start
 on an unsupported model or without the required kernel modules and permissions.
+The shipped modules-load configuration owns the `uinput` boot prerequisite so
+the enabled user service does not race a missing `/dev/uinput` node after a
+reboot. Installation remains an explicit privileged step and removal does not
+unload the module from the current boot.
 
 One system-layer workflow wraps the agent workflow. While unlocked, released Fn
 shows agents and held Fn shows seven monochrome controls: brightness down/up,
@@ -288,6 +378,11 @@ and the previously active TouchSignal user unit was restored byte-for-byte.
 
 Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1:
 
+The physical suspended-dGPU case is the one recorded exception. Version 0.1
+accepts the enforced runtime-first adapter tests and active-device hardware
+proof because the current driver cannot produce a suspended starting state.
+That physical case becomes required again when a future kernel or driver can.
+
 - cold login starts exactly one renderer;
 - unsupported or missing hardware leaves the firmware row working;
 - killing the renderer restores the firmware row and the supervised restart
@@ -301,9 +396,11 @@ Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1
 - the ChatGPT app tile launches and focuses only after Hyprland verification;
 - one through four, and more than four, Herdr workspaces render in Herdr order;
 - the ChatGPT app tile remains visible beside all four Herdr workspace tiles;
-- the center remains reserved while CPU temperature, GPU temperature, and power
-  profile remain the only right-side tiles;
-- a suspended dGPU dims the GPU tile without a temperature read or wake event;
+- the center remains reserved while CPU and GPU temperature remain the only
+  right-side tiles;
+- automated product-seam tests prove a suspended dGPU dims the GPU tile without
+  a temperature read, while the physical suspended-state case remains waived as
+  described above;
 - every Herdr lifecycle state displays its accurate sign and semantic color,
   with the full label available in diagnostic output;
 - duplicate workspace names remain distinguishable by workspace number;

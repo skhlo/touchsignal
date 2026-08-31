@@ -10,6 +10,7 @@ from touchbar_owner.cli import build_product_runtime
 from touchbar_owner.chatgpt import (
     DesktopEntryResolver,
     HyprlandClient,
+    HyprlandSocketClient,
     HyprlandSnapshot,
     LiveHyprlandChatGPTAdapter,
     parse_active_address,
@@ -20,6 +21,11 @@ from touchbar_owner.host import FakeHost
 from touchbar_owner.herdr import HerdrSnapshot
 from touchbar_owner.runtime import SupervisedRuntime
 from touchbar_owner.system_layer import LockState, MediaLayerFrame
+from touchbar_owner.thermal import (
+    GpuRuntimeState,
+    TemperatureReading,
+    ThermalSnapshot,
+)
 from touchbar_owner.types import (
     NATIVE_HEIGHT,
     NATIVE_WIDTH,
@@ -44,6 +50,15 @@ class FakeHyprlandSource:
 
     def snapshot(self) -> HyprlandSnapshot:
         return self.current
+
+
+class FakeThermalSource:
+    def snapshot(self) -> ThermalSnapshot:
+        return ThermalSnapshot(
+            cpu=TemperatureReading.measured(56),
+            gpu_runtime=GpuRuntimeState.ACTIVE,
+            gpu=TemperatureReading.measured(62),
+        )
 
 
 @dataclass
@@ -232,16 +247,18 @@ class ChatGPTWorkflowActionTests(unittest.TestCase):
         self.assertEqual(frame.chatgpt_tile.state, ChatGPTState.UNAVAILABLE)
         self.assertTrue(frame.safe_system_layer_available)
 
-    def test_focus_timeout_stays_unavailable_until_hyprland_verifies_focus(self) -> None:
+    def test_focus_timeout_recovers_to_open_and_allows_retry(self) -> None:
         clock = ManualClock()
         source = FakeHyprlandSource(
             HyprlandSnapshot(available=True, clients=(CHATGPT_CLIENT,), active_address=None)
         )
+        actions = FakeChatGPTActions()
         workflow = ChatGPTWorkflow(
             source,
-            FakeChatGPTActions(),
+            actions,
             clock=clock,
             pending_timeout=2.0,
+            failure_display_timeout=1.0,
         )
 
         workflow.process_touch_events([
@@ -251,15 +268,17 @@ class ChatGPTWorkflowActionTests(unittest.TestCase):
         clock.advance(2.0)
 
         self.assertEqual(workflow.frame().chatgpt_tile.state, ChatGPTState.UNAVAILABLE)
+        clock.advance(0.9)
         self.assertEqual(workflow.frame().chatgpt_tile.state, ChatGPTState.UNAVAILABLE)
 
-        source.current = HyprlandSnapshot(
-            available=True,
-            clients=(CHATGPT_CLIENT,),
-            active_address=CHATGPT_CLIENT.address,
-        )
+        clock.advance(0.1)
+        self.assertEqual(workflow.frame().chatgpt_tile.state, ChatGPTState.OPEN)
 
-        self.assertEqual(workflow.frame().chatgpt_tile.state, ChatGPTState.FOCUSED)
+        workflow.process_touch_events([
+            TouchEvent("down", 40, 20),
+            TouchEvent("up", 40, 20),
+        ])
+        self.assertEqual(actions.focused, [CHATGPT_CLIENT, CHATGPT_CLIENT])
 
     def test_touch_down_drag_away_restore_and_release_inside_commit_once(self) -> None:
         source = FakeHyprlandSource(
@@ -322,6 +341,7 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
                 actions=actions,
                 herdr_source=FakeHerdrSource(),
                 herdr_actions=FakeHerdrActions(),
+                thermal_source=FakeThermalSource(),
                 lock_source=FakeLockSource(LockState.LOCKED),
             )
 
@@ -334,6 +354,8 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
         layer = host.presented_frames[-1].workflow_frame
         self.assertIsInstance(layer, MediaLayerFrame)
         self.assertFalse(hasattr(layer, "chatgpt_tile"))
+        self.assertFalse(hasattr(layer, "cpu_temperature"))
+        self.assertFalse(hasattr(layer, "gpu_temperature"))
         self.assertEqual(actions.focused, [])
 
     def test_product_runtime_presents_workflow_frame_from_injected_sources(self) -> None:
@@ -354,6 +376,7 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
                 actions=actions,
                 herdr_source=FakeHerdrSource(),
                 herdr_actions=FakeHerdrActions(),
+                thermal_source=FakeThermalSource(),
                 lock_source=FakeLockSource(),
             )
 
@@ -371,6 +394,8 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
             presented.workflow_frame.chatgpt_tile.target.width,
             EXPECTED_CHATGPT_TARGET_WIDTH,
         )
+        self.assertEqual(presented.workflow_frame.cpu_temperature.value, "56°C")
+        self.assertEqual(presented.workflow_frame.gpu_temperature.value, "62°C")
 
     def test_fn_media_survives_agent_source_loss_and_release_restores_agents(self) -> None:
         with TemporaryDirectory() as raw:
@@ -573,6 +598,47 @@ class ChatGPTAdapterParsingTests(unittest.TestCase):
             adapter._event_loop()
 
         self.assertEqual(delays, [0.5, 1.0, 2.0, 4.0, 8.0, 8.0, 8.0])
+
+    def test_hyprland_socket_client_closes_after_one_json_response(self) -> None:
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.connected: str | None = None
+                self.sent = b""
+                self.closed = False
+
+            def settimeout(self, _seconds: float) -> None:
+                return None
+
+            def connect(self, path: str) -> None:
+                self.connected = path
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent = payload
+
+            def recv(self, _size: int) -> bytes:
+                return b'[{"address":"0x1","class":"chatgpt"}]'
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FakeSocket()
+        client = HyprlandSocketClient(
+            environ={
+                "XDG_RUNTIME_DIR": "/run/user/1000",
+                "HYPRLAND_INSTANCE_SIGNATURE": "instance",
+            },
+            socket_factory=lambda: connection,
+        )
+
+        response = client.request("j/clients")
+
+        self.assertEqual(response, '[{"address":"0x1","class":"chatgpt"}]')
+        self.assertEqual(
+            connection.connected,
+            "/run/user/1000/hypr/instance/.socket.sock",
+        )
+        self.assertEqual(connection.sent, b"j/clients")
+        self.assertTrue(connection.closed)
 
     def test_live_snapshot_polling_is_bounded(self) -> None:
         clock = ManualClock()
