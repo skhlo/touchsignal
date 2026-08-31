@@ -137,8 +137,10 @@ CPU and GPU temperatures are read-only. The GPU adapter reads dGPU runtime state
 first and accesses the temperature source only when that state already reports
 active. When the dGPU is suspended or its state is unknown, the GPU temperature
 tile dims and shows `--°C`; there is no separate dGPU power tile. A hardware
-test must verify that the runtime-state query itself does not wake a suspended
-device before this polling path is accepted.
+re-test must verify that the runtime-state query itself does not wake a
+suspended device once a future kernel or driver can produce that state on this
+machine. Version 0.1 accepts the enforced runtime-first adapter guard and the
+verified active-device path under the waiver recorded below.
 
 Thermal sources sample every two seconds. Presentation republishes immediately
 when availability, dGPU runtime state, severity band, or a three-degree change
@@ -152,6 +154,7 @@ fresh without repainting the full DRM surface for one-degree sensor jitter.
 | A dGPU temperature read occurs only after the immediately preceding runtime verdict is `active`. | Enforced | `LiveThermalAdapter.snapshot()` | Injected file reader records every path access. | Placed. Active tests prove runtime-before-temperature order; suspended, unknown, unreadable, and discovery-bypass tests prove the temperature path is never reached. |
 | CPU and GPU tiles never emit a hardware action. | Enforced | Workflow touch routing | Product-seam actions are observed after touches in both thermal targets. | Placed. Thermal target tests produce no agent, workspace, or hardware action. |
 | CPU and GPU positions remain stable at the right edge across source states. | Enforced | Workflow frame geometry | Product-seam frame targets. | Placed. Geometry tests cover both right-aligned temperature tiles from unavailable through active snapshots. |
+| Version 0.1 may ship without physical suspended-state certification when the target driver cannot produce a suspended dGPU with zero holders. | Trusted | Recorded 0.1 hardware waiver | Completed forced-BACO proof and restored result evidence | Placed. The current kernel remained active after forced runtime PM, an iGPU-only session, zero dGPU holders, and a 15-second wait. Re-test after a kernel or AMD driver update can make this device report `suspended`. |
 
 The active on-device path resolves the CPU package sensor, observes an active
 dGPU runtime verdict, and displays the verified AMD edge temperature. The
@@ -194,7 +197,10 @@ afterward. The probe restored `power/control` to `on`. A normal reboot restored
 absent UWSM override, one healthy monitor, and the TouchSignal service. This is
 a conclusive driver/platform limitation for the current kernel: the required
 suspended starting state cannot be produced, so the suspended-device acceptance
-criterion remains blocked rather than passed.
+criterion is waived for version 0.1 rather than falsely marked passed. The
+waiver does not weaken the runtime-first adapter guard. Physical certification
+returns as a gate after a kernel or AMD driver update can suspend the device
+with zero holders.
 
 The resumable proof workflow is saved as:
 
@@ -372,6 +378,11 @@ and the previously active TouchSignal user unit was restored byte-for-byte.
 
 Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1:
 
+The physical suspended-dGPU case is the one recorded exception. Version 0.1
+accepts the enforced runtime-first adapter tests and active-device hardware
+proof because the current driver cannot produce a suspended starting state.
+That physical case becomes required again when a future kernel or driver can.
+
 - cold login starts exactly one renderer;
 - unsupported or missing hardware leaves the firmware row working;
 - killing the renderer restores the firmware row and the supervised restart
@@ -387,7 +398,9 @@ Version 0.1 is not complete until all of these pass on the actual MacBookPro16,1
 - the ChatGPT app tile remains visible beside all four Herdr workspace tiles;
 - the center remains reserved while CPU and GPU temperature remain the only
   right-side tiles;
-- a suspended dGPU dims the GPU tile without a temperature read or wake event;
+- automated product-seam tests prove a suspended dGPU dims the GPU tile without
+  a temperature read, while the physical suspended-state case remains waived as
+  described above;
 - every Herdr lifecycle state displays its accurate sign and semantic color,
   with the full label available in diagnostic output;
 - duplicate workspace names remain distinguishable by workspace number;
