@@ -140,6 +140,7 @@ class RuntimeFrame:
     touch_count: int
     last_touch: TouchEvent | None
     workflow_frame: object | None = None
+    content_offset: tuple[int, int] = (0, 0)
 
 
 @dataclass(frozen=True)
