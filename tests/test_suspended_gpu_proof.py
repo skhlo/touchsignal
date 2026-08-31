@@ -138,6 +138,34 @@ class LimineProofHelperTests(unittest.TestCase):
             self.assertTrue(backup.exists())
             self.assertIn(b"cmdline: debug", config.read_bytes())
 
+    def test_config_write_restores_every_original_mount_option(self) -> None:
+        with TemporaryDirectory() as raw:
+            config = Path(raw) / "limine.conf"
+            config.write_bytes(LIMINE_CONFIG)
+            original_options = ("ro", "nosuid", "nodev", "relatime")
+            remounts: list[tuple[str, ...]] = []
+
+            def remount(options: tuple[str, ...]) -> None:
+                remounts.append(options)
+
+            with patch.dict(
+                LIMINE_GLOBALS,
+                {
+                    "CONFIG_PATH": config,
+                    "_mount_info": lambda: ("vfat", original_options),
+                    "_remount": remount,
+                },
+            ):
+                LIMINE["_replace_config"](patch_config(LIMINE_CONFIG))
+
+            self.assertEqual(
+                remounts,
+                [
+                    ("rw", "nosuid", "nodev", "relatime"),
+                    original_options,
+                ],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

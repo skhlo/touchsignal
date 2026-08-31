@@ -125,7 +125,7 @@ def _create_backup(original: bytes) -> None:
         os.close(directory)
 
 
-def _mount_info() -> tuple[str, set[str]]:
+def _mount_info() -> tuple[str, tuple[str, ...]]:
     completed = subprocess.run(
         [
             "findmnt",
@@ -152,12 +152,12 @@ def _mount_info() -> tuple[str, set[str]]:
     options = filesystem.get("options")
     if not isinstance(options, str):
         raise LimineProofError("the /boot mount options are unavailable")
-    return filesystem["fstype"], set(options.split(","))
+    return filesystem["fstype"], tuple(options.split(","))
 
 
-def _remount(mode: str) -> None:
+def _remount(options: tuple[str, ...]) -> None:
     subprocess.run(
-        ["mount", "-o", f"remount,{mode}", str(BOOT_MOUNT)],
+        ["mount", "-o", "remount," + ",".join(options), str(BOOT_MOUNT)],
         check=True,
     )
 
@@ -198,7 +198,10 @@ def _replace_config(value: bytes) -> None:
     _fstype, options = _mount_info()
     originally_read_only = "ro" in options
     if originally_read_only:
-        _remount("rw")
+        writable_options = tuple(
+            "rw" if option == "ro" else option for option in options
+        )
+        _remount(writable_options)
     try:
         try:
             _atomic_write(CONFIG_PATH, value)
@@ -217,10 +220,10 @@ def _replace_config(value: bytes) -> None:
             raise
     finally:
         if originally_read_only:
-            _remount("ro")
+            _remount(options)
     _fstype, restored_options = _mount_info()
-    if originally_read_only and "ro" not in restored_options:
-        raise LimineProofError("the /boot mount did not return to read-only")
+    if set(restored_options) != set(options):
+        raise LimineProofError("the /boot mount options were not restored")
 
 
 def prepare() -> dict[str, object]:
