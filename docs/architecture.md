@@ -171,12 +171,18 @@ GPU evidence and invalidated every proof flow that carries a DRM card number
 across a reboot.
 
 The replacement proof must verify `amdgpu.runpm=1` before it writes a compositor
-override. Its UWSM environment resolves the Intel PCI function `0000:00:02.0`
-to the current DRM node every time the session starts and unsets the override
-when that identity is absent. It then uses a same-boot logout for the iGPU-only
-session. Reboot, GPU identity, monitor health, TouchSignal health, and dGPU
-holder gates all precede the privileged probe. This proof remains pending and
-must not run without separate approval for its reboot stage.
+override. Because Limine's editor can boot only with F10 and the MacBook's F10
+key is on the unavailable preboot Touch Bar, the wizard does not use the editor.
+A privileged helper backs up `/boot/limine.conf`, atomically appends the forced
+parameter to exactly one top-level `linux-t2` cmdline, and returns the VFAT mount
+to read-only before reboot. On the forced boot, it restores and byte-compares
+the original Limine config before the wizard can change UWSM. The UWSM
+environment then resolves the Intel PCI function `0000:00:02.0` to the current
+DRM node every time the session starts and unsets the override when that
+identity is absent. It uses a same-boot logout for the iGPU-only session.
+Reboot, GPU identity, monitor health, TouchSignal health, and dGPU holder gates
+all precede the privileged probe. This proof remains pending and must not run
+without separate approval for its reboot stage.
 
 The resumable proof workflow is saved as:
 
@@ -191,6 +197,8 @@ state, backups, and result evidence under the ignored `.scratch/` directory.
 
 | Invariant | Strength | Home | Oracle and seam | Disposition and proof |
 | --- | --- | --- | --- | --- |
+| The forced boot changes only the top-level `linux-t2` cmdline and never depends on a Touch Bar function key. | Enforced | `scripts/issue7-limine-parameter` parser and wizard prepare stage | Limine fixture with top-level and snapshot `linux-t2` entries, plus saved wizard text | Placed. The mutation test proves only the top-level cmdline gains one parameter; ambiguous top-level entries are rejected; the instruction test rejects F10. |
+| The original Limine config and read-only ESP state return before any UWSM change or later reboot. | Enforced | Privileged Limine helper and `awaiting_forced_boot` transition | Byte comparison against the exclusive backup, `findmnt` mount options, and state-machine ordering | Placed. Restore and verify are mandatory before the UWSM write path; mismatched active config is rejected instead of overwritten. |
 | A compositor override is never written until the forced runtime-PM boot is verified. | Enforced | Parameter-first proof state transition | `/proc/cmdline` and the loaded amdgpu `runpm` value before the UWSM write stage | Placed. A normal boot without the requested parameter stops before backup or override creation. |
 | A temporary compositor override never carries a DRM card number across a reboot. | Enforced | PCI-resolving UWSM environment snippet | The resolved DRM node must link to Intel PCI `0000:00:02.0`; Hyprland must then report one nonzero enabled monitor. | Placed. The live selector resolved Intel by PCI identity; mutation to an absent PCI identity unset a stale override instead of selecting a card. |
 | The enabled TouchSignal service has `/dev/uinput` available after reboot. | Enforced | `systemd/modules-load.d/touchsignal.conf` | `/dev/uinput` writability plus service preflight after login | Provisional until the shipped file is installed and one later reboot proves the boot path. The proof wizard refuses its first reboot while the installed file differs. |

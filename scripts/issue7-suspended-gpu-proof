@@ -196,6 +196,8 @@ BACKUP_MARKER="$STATE_DIR/issue7-safe-env-hyprland.original"
 ORIGINAL_RUNPM_FILE="$STATE_DIR/issue7-safe-original-runpm"
 ORIGINAL_SESSION_GPU_FILE="$STATE_DIR/issue7-safe-original-session-gpu"
 PROBE_SCRIPT="$SCRIPT_DIR/issue7-suspended-gpu-probe"
+LIMINE_HELPER="$SCRIPT_DIR/issue7-limine-parameter"
+LIMINE_BACKUP="$STATE_DIR/issue7-safe-limine.backup"
 MODULES_LOAD_SOURCE="$ISSUE_ROOT/systemd/modules-load.d/touchsignal.conf"
 MODULES_LOAD_TARGET="/etc/modules-load.d/touchsignal.conf"
 UWSM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/uwsm"
@@ -299,6 +301,22 @@ boot_prerequisite_ready() {
     && cmp -s -- "$MODULES_LOAD_SOURCE" "$MODULES_LOAD_TARGET"
 }
 
+prepare_limine_config() {
+  say "The terminal will request permission for one reversible boot-entry edit."
+  sudo "$LIMINE_HELPER" prepare
+}
+
+restore_limine_config() {
+  say "Restoring the original Limine configuration before any graphics changes."
+  sudo "$LIMINE_HELPER" restore
+  sudo "$LIMINE_HELPER" verify >/dev/null
+}
+
+verify_limine_restored() {
+  [[ -f "$LIMINE_BACKUP" ]] || return 1
+  sudo "$LIMINE_HELPER" verify >/dev/null
+}
+
 backup_uwsm_environment() {
   mkdir -p -- "$UWSM_DIR"
   [[ -w "$UWSM_DIR" ]] || return 1
@@ -369,13 +387,6 @@ verify_original_uwsm_environment() {
   fi
 }
 
-show_one_boot_edit() {
-  step "When Limine appears, press any key to stop automatic boot."
-  step "Open Omarchy, highlight linux-t2, and press e."
-  step "On the cmdline line only, append: $FORCED_PARAMETER"
-  step "Press F10 to boot. This edit lasts for that boot only."
-}
-
 rerun_instruction() {
   say "After signing back in, open a terminal and rerun:"
   say "  $SCRIPT_DIR/issue7-suspended-gpu-proof"
@@ -392,12 +403,19 @@ logout_now() {
 }
 
 cleanup_state() {
+  if [[ -f "$LIMINE_BACKUP" ]]; then
+    sudo "$LIMINE_HELPER" cleanup >/dev/null
+  fi
   rm -f -- "$BACKUP_FILE" "$BACKUP_MARKER" "$ORIGINAL_RUNPM_FILE" \
     "$ORIGINAL_SESSION_GPU_FILE" "$STATE_FILE"
 }
 
 restore_and_offer_normal_reboot() {
   restore_uwsm_environment
+  verify_limine_restored || {
+    warn "the original Limine configuration is not restored; do not reboot"
+    exit 1
+  }
   if [[ -f "$RESULT_FILE" ]]; then
     write_state "awaiting_normal_boot"
   else
@@ -422,7 +440,9 @@ STATE=$(state_value)
 case "$STATE" in
   "")
     stage "Preflight the normal session"
-    for command in cmp fuser git hyprctl modinfo omarchy pkexec python3 readlink systemctl; do
+    for command in \
+      cmp findmnt fuser git hyprctl modinfo mount omarchy pkexec \
+      python3 readlink sudo systemctl; do
       if ! command -v "$command" >/dev/null 2>&1; then
         warn "required command is missing: $command"
         exit 1
@@ -430,6 +450,10 @@ case "$STATE" in
     done
     [[ -x "$PROBE_SCRIPT" ]] || {
       warn "probe is not executable: $PROBE_SCRIPT"
+      exit 1
+    }
+    [[ -x "$LIMINE_HELPER" ]] || {
+      warn "Limine helper is not executable: $LIMINE_HELPER"
       exit 1
     }
     [[ -z "$(git -C "$ISSUE_ROOT" status --porcelain --untracked-files=no)" ]] || {
@@ -470,7 +494,7 @@ case "$STATE" in
       say "  sudo install -Dm0644 $MODULES_LOAD_SOURCE $MODULES_LOAD_TARGET"
       exit 1
     }
-    if [[ -e "$BACKUP_MARKER" || -e "$BACKUP_FILE" \
+    if [[ -e "$BACKUP_MARKER" || -e "$BACKUP_FILE" || -e "$LIMINE_BACKUP" \
       || -e "$ORIGINAL_RUNPM_FILE" || -e "$ORIGINAL_SESSION_GPU_FILE" ]]; then
       warn "a previous safe-proof backup exists without a state marker; do not overwrite it"
       exit 1
@@ -483,9 +507,21 @@ case "$STATE" in
 
     stage "Reboot with forced BACO only"
     warn "This reboot does not install an AQ_DRM_DEVICES override."
-    show_one_boot_edit
-    confirm "I have read the one-boot Limine steps. Reboot now?" || {
-      say "Rerun this wizard when ready. No graphics configuration was changed."
+    warn "Only the top-level linux-t2 cmdline is changed."
+    warn "Snapshot entries are untouched."
+    if ! confirm "Back up Limine and prepare the temporary forced-boot entry?"; then
+      cleanup_state
+      say "The proof state was removed. No boot or graphics configuration changed."
+      exit 0
+    fi
+    prepare_limine_config || {
+      warn "the temporary Limine entry could not be prepared"
+      say "Do not reboot. Rerun the wizard to retry or restore the saved backup."
+      exit 1
+    }
+    say "The active boot entry is prepared and /boot is read-only again."
+    confirm "Reboot into the prepared entry now?" || {
+      say "Rerun this wizard when ready; the prepared entry and backup are retained."
       exit 0
     }
     reboot_now
@@ -495,17 +531,28 @@ case "$STATE" in
     _STAGE_INDEX=2
     stage "Verify forced runtime PM before graphics changes"
     if ! cmdline_has "$FORCED_PARAMETER"; then
-      warn "the one-boot $FORCED_PARAMETER edit is not active"
+      warn "the temporary $FORCED_PARAMETER boot is not active"
       say "No compositor configuration was changed, so this session is safe."
-      show_one_boot_edit
-      if confirm "Retry the one-boot Limine edit now?"; then
+      if confirm "Prepare the temporary Limine entry and retry now?"; then
+        prepare_limine_config || {
+          warn "the temporary Limine entry could not be prepared"
+          exit 1
+        }
         reboot_now
       fi
       if confirm "Cancel this proof and remove its state marker?"; then
+        if [[ -f "$LIMINE_BACKUP" ]]; then
+          restore_limine_config
+        fi
         cleanup_state
       fi
       exit 1
     fi
+    restore_limine_config || {
+      warn "the original Limine configuration could not be restored"
+      say "Do not log out or reboot until restoration succeeds."
+      exit 1
+    }
     if [[ "$(< "$RUNPM_FILE")" != "1" ]]; then
       warn "the kernel command line contains $FORCED_PARAMETER, but amdgpu reports another value"
       write_state "awaiting_normal_boot_no_uwsm"
@@ -569,6 +616,10 @@ case "$STATE" in
     stage "Verify the iGPU session and run the proof"
     if ! cmdline_has "$FORCED_PARAMETER"; then
       warn "the forced parameter disappeared, so the probe will not run"
+      verify_limine_restored || {
+        warn "the original Limine configuration is not restored; do not reboot"
+        exit 1
+      }
       restore_uwsm_environment
       write_state "awaiting_normal_boot_no_result"
       say "The original UWSM environment is restored. Log out once and rerun."
@@ -629,6 +680,10 @@ case "$STATE" in
 
     stage "Restore the normal boot and compositor"
     say "The original UWSM environment is restored on disk."
+    verify_limine_restored || {
+      warn "the original Limine configuration is not restored; do not reboot"
+      exit 1
+    }
     step "Allow Limine to boot normally. Do not press e."
     confirm "Reboot back into the normal session now?" || {
       say "Rerun this wizard when ready; it will offer the normal reboot again."
@@ -642,6 +697,10 @@ case "$STATE" in
       _STAGE_INDEX=6
       stage "Restore the normal boot and compositor"
       say "The original UWSM environment is already restored on disk."
+      verify_limine_restored || {
+        warn "the original Limine configuration is not restored; do not reboot"
+        exit 1
+      }
       step "Allow Limine to boot normally. Do not press e."
       confirm "Reboot back into the normal session now?" || exit 0
       reboot_now
@@ -656,6 +715,10 @@ case "$STATE" in
     }
     verify_original_uwsm_environment || {
       warn "the original UWSM environment was not restored byte-for-byte"
+      exit 1
+    }
+    verify_limine_restored || {
+      warn "the original Limine configuration is not restored byte-for-byte"
       exit 1
     }
     ORIGINAL_SESSION_GPU=$(tr -d '\n' < "$ORIGINAL_SESSION_GPU_FILE")
@@ -692,10 +755,18 @@ case "$STATE" in
     _STAGE_INDEX=6
     stage "Return from the forced boot without graphics changes"
     if cmdline_has "$FORCED_PARAMETER"; then
+      verify_limine_restored || {
+        warn "the original Limine configuration is not restored; do not reboot"
+        exit 1
+      }
       step "Allow Limine to boot normally. Do not press e."
       confirm "Reboot normally now?" || exit 0
       reboot_now
     fi
+    verify_limine_restored || {
+      warn "the original Limine configuration is not restored byte-for-byte"
+      exit 1
+    }
     say "Normal runtime PM is restored. No UWSM override was created."
     cleanup_state
     finish
@@ -705,6 +776,10 @@ case "$STATE" in
     _STAGE_INDEX=6
     stage "Restore normal graphics after an aborted proof"
     if cmdline_has "$FORCED_PARAMETER"; then
+      verify_limine_restored || {
+        warn "the original Limine configuration is not restored; do not reboot"
+        exit 1
+      }
       step "Allow Limine to boot normally. Do not press e."
       confirm "Reboot normally now?" || exit 0
       reboot_now
@@ -716,6 +791,10 @@ case "$STATE" in
     }
     verify_original_uwsm_environment || {
       warn "the original UWSM environment was not restored byte-for-byte"
+      exit 1
+    }
+    verify_limine_restored || {
+      warn "the original Limine configuration is not restored byte-for-byte"
       exit 1
     }
     ORIGINAL_SESSION_GPU=$(tr -d '\n' < "$ORIGINAL_SESSION_GPU_FILE")
