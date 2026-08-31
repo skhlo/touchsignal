@@ -217,6 +217,13 @@ State changes use an immediate update or a short cross-fade. They do not slide
 the entire row or use decorative looping motion. The tile layout remains stable
 as labels and states update.
 
+The product renderer mitigates OLED burn-in by moving all visible workflow
+content through a deterministic nine-position, one-pixel pattern once per
+minute. The black panel background, touch targets, and action geometry remain
+fixed. A cadence change presents a new frame even when the workflow state has
+not changed. This safety motion is small enough to avoid visible jitter and is
+not disabled as decorative motion.
+
 TouchSignal is supplemental. Every action remains available through the normal
 keyboard, Herdr, Hyprland, ChatGPT, and coding-agent interfaces. A Touch Bar
 failure cannot be the only route to an action.

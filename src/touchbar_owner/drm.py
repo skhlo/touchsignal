@@ -223,6 +223,15 @@ def draw_runtime_frame(ctx, width: int, height: int, frame: RuntimeFrame) -> Non
     ctx.rectangle(0, 0, width, height)
     ctx.fill()
 
+    ctx.save()
+    try:
+        ctx.translate(*frame.content_offset)
+        _draw_workflow_layer(ctx, workflow)
+    finally:
+        ctx.restore()
+
+
+def _draw_workflow_layer(ctx, workflow) -> None:
     if isinstance(workflow, MediaLayerFrame):
         for button in workflow.buttons:
             _draw_media_button(ctx, button)

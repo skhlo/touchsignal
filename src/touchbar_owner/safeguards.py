@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import replace
+from time import monotonic
+from typing import Protocol
+
+from .types import RuntimeInput, RuntimeResult
+
+
+PIXEL_SHIFT_PATTERN = (
+    (0, 0),
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+)
+
+
+class Renderer(Protocol):
+    def render(self, runtime_input: RuntimeInput) -> RuntimeResult: ...
+
+
+class PixelShiftRenderer:
+    def __init__(
+        self,
+        renderer: Renderer,
+        *,
+        clock: Callable[[], float] = monotonic,
+        cadence: float = 60.0,
+    ) -> None:
+        if cadence <= 0:
+            raise ValueError("pixel-shift cadence must be positive")
+        self.renderer = renderer
+        self.clock = clock
+        self.cadence = cadence
+        self._started_at: float | None = None
+
+    def render(self, runtime_input: RuntimeInput) -> RuntimeResult:
+        now = self.clock()
+        if self._started_at is None:
+            self._started_at = now
+        elapsed = max(0.0, now - self._started_at)
+        index = int(elapsed // self.cadence) % len(PIXEL_SHIFT_PATTERN)
+        result = self.renderer.render(runtime_input)
+        frame = replace(
+            result.frame,
+            content_offset=PIXEL_SHIFT_PATTERN[index],
+        )
+        return replace(result, frame=frame)
