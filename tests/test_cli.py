@@ -83,9 +83,9 @@ class CliTests(unittest.TestCase):
                     self,
                     cycles: int | None = None,
                     max_restarts: int = 1,
-                    touch_timeout: float = 0.0,
+                    input_timeout: float = 0.0,
                 ) -> None:
-                    calls.append(("run", cycles, max_restarts, touch_timeout))
+                    calls.append(("run", cycles, max_restarts, input_timeout))
                     host.graphical_session = False
 
                 def stop(self) -> None:

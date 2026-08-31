@@ -142,6 +142,55 @@ class RuntimePreflightTests(unittest.TestCase):
 
 
 class RuntimeOperationTests(unittest.TestCase):
+    def test_fn_press_during_idle_wait_reaches_renderer_in_the_same_cycle(self) -> None:
+        class FnDuringWaitHost(FakeHost):
+            def wait_for_input(
+                self,
+                _fn_session,
+                _touch_session,
+                _timeout: float,
+            ) -> None:
+                self.queued_fn_events.append(FnEvent("press"))
+
+        with TemporaryDirectory() as raw:
+            host = FnDuringWaitHost(Path(raw))
+            renderer = IntentRenderer()
+            runtime = SupervisedRuntime(host, renderer=renderer)
+            runtime.start()
+            try:
+                runtime.process_once(input_timeout=0.5)
+            finally:
+                runtime.stop()
+
+        self.assertTrue(renderer.inputs[-1].fn_held)
+
+    def test_fn_release_during_idle_wait_reaches_renderer_in_the_same_cycle(self) -> None:
+        class FnDuringWaitHost(FakeHost):
+            next_event = FnEvent("press")
+
+            def wait_for_input(
+                self,
+                _fn_session,
+                _touch_session,
+                _timeout: float,
+            ) -> None:
+                self.queued_fn_events.append(self.next_event)
+
+        with TemporaryDirectory() as raw:
+            host = FnDuringWaitHost(Path(raw))
+            renderer = IntentRenderer()
+            runtime = SupervisedRuntime(host, renderer=renderer)
+            runtime.start()
+            try:
+                runtime.process_once(input_timeout=0.5)
+                host.next_event = FnEvent("release")
+                runtime.process_once(input_timeout=0.5)
+            finally:
+                runtime.stop()
+
+        self.assertTrue(renderer.inputs[-2].fn_held)
+        self.assertFalse(renderer.inputs[-1].fn_held)
+
     def test_runtime_dispatches_renderer_intents_through_the_physical_owner(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
@@ -175,17 +224,18 @@ class RuntimeOperationTests(unittest.TestCase):
             finally:
                 runtime.stop()
 
-    def test_process_waits_on_touch_input_for_the_refresh_interval(self) -> None:
+    def test_process_waits_on_all_input_for_the_refresh_interval(self) -> None:
         with TemporaryDirectory() as raw:
             host = FakeHost(Path(raw))
             runtime = SupervisedRuntime(host)
             runtime.start()
             try:
-                runtime.process_once(touch_timeout=0.25)
+                runtime.process_once(input_timeout=0.25)
             finally:
                 runtime.stop()
 
-            self.assertEqual(host.touch_read_timeouts[-1], 0.25)
+            self.assertEqual(host.input_wait_timeouts[-1], 0.25)
+            self.assertEqual(host.touch_read_timeouts[-1], 0.0)
 
     def test_runtime_carries_touch_through_normalized_input_and_frame(self) -> None:
         with TemporaryDirectory() as raw:

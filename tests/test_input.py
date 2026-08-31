@@ -5,6 +5,7 @@ import struct
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import monotonic
 from unittest.mock import patch
 
 from touchbar_owner.input import (
@@ -22,6 +23,7 @@ from touchbar_owner.input import (
     open_virtual_keyboard,
 )
 from touchbar_owner.host import FakeHost
+from touchbar_owner.live import LiveHost
 from touchbar_owner.owner import OwnerError, TouchBarOwner
 from touchbar_owner.types import (
     KEY_FN,
@@ -45,6 +47,36 @@ EXPECTED_MEDIA_KEY_CODES = {
 
 def input_event(event_type: int, code: int, value: int) -> bytes:
     return struct.pack(EVENT_FORMAT, 0, 0, event_type, code, value)
+
+
+class FdSession:
+    def __init__(self, fd: int) -> None:
+        self.fd = fd
+
+
+class InputWaitAdapterTests(unittest.TestCase):
+    def test_either_fn_or_touch_readiness_ends_the_idle_wait(self) -> None:
+        for ready_session in ("fn", "touch"):
+            with self.subTest(ready_session=ready_session):
+                fn_read, fn_write = os.pipe()
+                touch_read, touch_write = os.pipe()
+                try:
+                    ready_fd = fn_write if ready_session == "fn" else touch_write
+                    os.write(ready_fd, b"ready")
+                    host = LiveHost()
+
+                    started = monotonic()
+                    host.wait_for_input(
+                        FdSession(fn_read),
+                        FdSession(touch_read),
+                        1.0,
+                    )
+                    elapsed = monotonic() - started
+                finally:
+                    for fd in (fn_read, fn_write, touch_read, touch_write):
+                        os.close(fd)
+
+                self.assertLess(elapsed, 0.25)
 
 
 class FnInputAdapterTests(unittest.TestCase):

@@ -235,7 +235,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 runtime.run_supervised(
                     cycles=1,
                     max_restarts=0,
-                    touch_timeout=args.poll_interval,
+                    input_timeout=args.poll_interval,
                 )
             except PreflightError as exc:
                 if runtime.state.running:

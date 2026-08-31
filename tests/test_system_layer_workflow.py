@@ -8,6 +8,7 @@ from touchbar_owner.system_layer import (
     LockState,
     MediaLayerFrame,
     SystemLayerWorkflow,
+    media_target_geometry,
 )
 from touchbar_owner.types import MediaAction, RuntimeInput, TouchEvent
 
@@ -241,6 +242,25 @@ class SystemLayerWorkflowTests(unittest.TestCase):
         self.assertEqual(released.intents, ())
         self.assertEqual(agents.cancel_count, 1)
         self.assertEqual(released.frame.workflow_frame, {"agent_identity": "fresh-agent"})
+
+    def test_fn_entry_batch_is_routed_only_to_the_media_layer(self) -> None:
+        agents = ContactAgentWorkflow()
+        workflow = SystemLayerWorkflow(agents, FakeLockSource())
+        workflow.render(RuntimeInput())
+        target = media_target_geometry(0)
+
+        entered = workflow.render(
+            RuntimeInput(
+                touches=(
+                    TouchEvent("down", target.x + 1, target.y + 1),
+                    TouchEvent("up", target.x + 1, target.y + 1),
+                ),
+                fn_held=True,
+            )
+        )
+
+        self.assertEqual(entered.intents, (MediaAction.BRIGHTNESS_DOWN,))
+        self.assertEqual(agents.events, [])
 
     def test_fn_release_batch_cannot_reach_the_agent_layer(self) -> None:
         agents = ContactAgentWorkflow()

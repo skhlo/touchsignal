@@ -311,9 +311,10 @@ State changes use an immediate update or a short cross-fade. They do not slide
 the entire row or use decorative looping motion. The tile layout remains stable
 as labels and states update.
 
-The owner waits on the touch file descriptor with a 500-millisecond idle source
-refresh timeout. A real touch wakes the wait immediately, while idle operation
-avoids a fixed high-frequency polling loop.
+The owner uses one blocking wait across the Fn and touch file descriptors with
+a 500-millisecond idle source refresh timeout. Either input wakes the wait
+immediately. Fn state is drained before the same-cycle touch batch is routed,
+while idle operation avoids a fixed high-frequency polling loop.
 
 The product renderer mitigates OLED burn-in by moving all visible workflow
 content through a deterministic nine-position, one-pixel pattern once per

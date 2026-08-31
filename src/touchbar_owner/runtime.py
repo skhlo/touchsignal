@@ -110,13 +110,13 @@ class SupervisedRuntime:
             self.stop()
             raise
 
-    def process_once(self, touch_timeout: float = 0.0) -> None:
+    def process_once(self, input_timeout: float = 0.0) -> None:
         if self._owner is None or not self.state.running:
             raise SupervisedRuntimeError("runtime is not running")
         if not self.host.graphical_session_ready():
             self.stop()
             return
-        runtime_input = self._owner.drain_input(touch_timeout)
+        runtime_input = self._owner.drain_input(input_timeout)
         self.state.touch_events.extend(runtime_input.touches)
         self._record_result(runtime_input)
 
@@ -136,13 +136,13 @@ class SupervisedRuntime:
         self,
         cycles: int | None = None,
         max_restarts: int = 1,
-        touch_timeout: float = 0.0,
+        input_timeout: float = 0.0,
     ) -> None:
         completed = 0
         while cycles is None or completed < cycles:
             try:
                 self.start()
-                self.process_once(touch_timeout)
+                self.process_once(input_timeout)
                 completed += 1
             except PreflightError:
                 raise
