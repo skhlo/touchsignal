@@ -25,6 +25,33 @@ class Renderer(Protocol):
     def render(self, runtime_input: RuntimeInput) -> RuntimeResult: ...
 
 
+class CappedReconnectBackoff:
+    def __init__(
+        self,
+        *,
+        initial: float,
+        maximum: float,
+        stable_after: float,
+    ) -> None:
+        if initial <= 0:
+            raise ValueError("initial reconnect delay must be positive")
+        if maximum < initial:
+            raise ValueError("maximum reconnect delay must not be smaller than initial")
+        if stable_after < 0:
+            raise ValueError("stable reconnect interval must not be negative")
+        self.initial = initial
+        self.maximum = maximum
+        self.stable_after = stable_after
+        self._next = initial
+
+    def next_delay(self, connected_for: float | None = None) -> float:
+        if connected_for is not None and connected_for >= self.stable_after:
+            self._next = self.initial
+        delay = self._next
+        self._next = min(delay * 2, self.maximum)
+        return delay
+
+
 class PixelShiftRenderer:
     def __init__(
         self,

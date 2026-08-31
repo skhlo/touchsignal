@@ -3,15 +3,25 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import socket
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from time import monotonic
+from threading import Lock, Thread
+from time import monotonic, sleep as default_sleep
 from typing import Protocol
+
+from .safeguards import CappedReconnectBackoff
 
 
 CHATGPT_HYPRLAND_CLASS = "chatgpt"
+HYPRLAND_REFRESH_EVENT_KINDS = frozenset(
+    {"activewindowv2", "openwindow", "closewindow"}
+)
+HYPRLAND_RECONNECT_INITIAL = 0.5
+HYPRLAND_RECONNECT_MAX = 30.0
+HYPRLAND_RECONNECT_STABLE_AFTER = 10.0
 
 
 @dataclass(frozen=True)
@@ -57,6 +67,22 @@ class ChatGPTActions(Protocol):
     def request_launch(self) -> None: ...
 
 
+class HyprlandEventStream(Protocol):
+    def __enter__(self) -> HyprlandEventStream: ...
+    def __exit__(self, *_args) -> None: ...
+    def __iter__(self) -> Iterator[bytes]: ...
+
+
+class HyprlandEventSocket(Protocol):
+    def connect(self, path: str) -> None: ...
+    def makefile(self, mode: str) -> HyprlandEventStream: ...
+    def close(self) -> None: ...
+
+
+def _hyprland_event_socket() -> HyprlandEventSocket:
+    return socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+
 def parse_hyprland_clients(raw: object) -> tuple[HyprlandClient, ...]:
     if not isinstance(raw, list):
         return ()
@@ -78,43 +104,130 @@ def parse_active_address(raw: object) -> str | None:
     return address if isinstance(address, str) and address else None
 
 
+def parse_hyprland_event(line: bytes) -> str | None:
+    try:
+        raw = line.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return None
+    kind, separator, _payload = raw.partition(">>")
+    if not separator or kind not in HYPRLAND_REFRESH_EVENT_KINDS:
+        return None
+    return kind
+
+
+def resolve_hyprland_event_socket_path(environ: Mapping[str, str]) -> str:
+    runtime_dir = environ.get("XDG_RUNTIME_DIR")
+    signature = environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not runtime_dir or not signature:
+        raise OSError("Hyprland IPC environment is unavailable")
+    return str(Path(runtime_dir) / "hypr" / signature / ".socket2.sock")
+
+
 class LiveHyprlandChatGPTAdapter:
     def __init__(
         self,
         *,
         clock: Callable[[], float] = monotonic,
         snapshot_interval: float = 4.0,
+        environ: Mapping[str, str] | None = None,
+        event_socket_factory: Callable[[], HyprlandEventSocket] = _hyprland_event_socket,
+        sleep: Callable[[float], None] = default_sleep,
+        reconnect_initial: float = HYPRLAND_RECONNECT_INITIAL,
+        reconnect_max: float = HYPRLAND_RECONNECT_MAX,
+        reconnect_stable_after: float = HYPRLAND_RECONNECT_STABLE_AFTER,
     ) -> None:
         self.clock = clock
         self.snapshot_interval = snapshot_interval
+        self.environ = os.environ if environ is None else environ
+        self.event_socket_factory = event_socket_factory
+        self.sleep = sleep
+        self._reconnect_backoff = CappedReconnectBackoff(
+            initial=reconnect_initial,
+            maximum=reconnect_max,
+            stable_after=reconnect_stable_after,
+        )
         self._cached_snapshot = HyprlandSnapshot.unavailable()
         self._snapshot_at: float | None = None
+        self._snapshot_lock = Lock()
+        self._event_thread_lock = Lock()
+        self._event_thread: Thread | None = None
+        self._event_started_at: float | None = None
 
     def snapshot(self) -> HyprlandSnapshot:
-        now = self.clock()
-        if (
-            self._snapshot_at is not None
-            and now >= self._snapshot_at
-            and now - self._snapshot_at < self.snapshot_interval
-        ):
-            return self._cached_snapshot
-        try:
-            clients = self._json(["hyprctl", "-j", "clients"])
-            active = self._json(["hyprctl", "-j", "activewindow"])
-        except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-            snapshot = HyprlandSnapshot.unavailable()
-        else:
-            snapshot = HyprlandSnapshot(
-                available=True,
-                clients=parse_hyprland_clients(clients),
-                active_address=parse_active_address(active),
+        self._ensure_event_subscription()
+        with self._snapshot_lock:
+            now = self.clock()
+            if (
+                self._snapshot_at is not None
+                and now >= self._snapshot_at
+                and now - self._snapshot_at < self.snapshot_interval
+            ):
+                return self._cached_snapshot
+            try:
+                clients = self._json(["hyprctl", "-j", "clients"])
+                active = self._json(["hyprctl", "-j", "activewindow"])
+            except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+                snapshot = HyprlandSnapshot.unavailable()
+            else:
+                snapshot = HyprlandSnapshot(
+                    available=True,
+                    clients=parse_hyprland_clients(clients),
+                    active_address=parse_active_address(active),
+                )
+            self._cached_snapshot = snapshot
+            self._snapshot_at = self.clock()
+            return snapshot
+
+    def _ensure_event_subscription(self) -> None:
+        with self._event_thread_lock:
+            if self._event_thread is not None and self._event_thread.is_alive():
+                return
+            self._event_thread = Thread(
+                target=self._event_loop,
+                name="touchsignal-hyprland-events",
+                daemon=True,
             )
-        self._cached_snapshot = snapshot
-        self._snapshot_at = self.clock()
-        return snapshot
+            self._event_thread.start()
+
+    def _handle_event_line(self, line: bytes) -> bool:
+        if parse_hyprland_event(line) is None:
+            return False
+        self._invalidate_snapshot()
+        return True
+
+    def _invalidate_snapshot(self) -> None:
+        with self._snapshot_lock:
+            self._snapshot_at = None
+
+    def _event_loop(self) -> None:
+        while True:
+            self._event_started_at = None
+            try:
+                self._consume_events()
+            except (OSError, ValueError):
+                self._invalidate_snapshot()
+            connected_for = (
+                None
+                if self._event_started_at is None
+                else max(0.0, self.clock() - self._event_started_at)
+            )
+            self.sleep(self._reconnect_backoff.next_delay(connected_for))
+
+    def _consume_events(self) -> None:
+        client = self.event_socket_factory()
+        try:
+            client.connect(resolve_hyprland_event_socket_path(self.environ))
+            self._event_started_at = self.clock()
+            self._invalidate_snapshot()
+            with client.makefile("rb") as stream:
+                for line in stream:
+                    self._handle_event_line(line)
+        finally:
+            client.close()
+        raise ConnectionError("Hyprland event socket closed")
 
     def fresh_snapshot(self) -> HyprlandSnapshot:
-        self._snapshot_at = None
+        self._invalidate_snapshot()
         return self.snapshot()
 
     def request_focus(self, client: HyprlandClient) -> None:

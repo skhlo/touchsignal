@@ -10,6 +10,8 @@ from threading import Lock, Thread
 from time import monotonic, sleep as default_sleep
 from typing import Protocol
 
+from .safeguards import CappedReconnectBackoff
+
 
 TOPOLOGY_EVENT_KINDS = frozenset(
     {
@@ -234,19 +236,14 @@ class LiveHerdrAdapter:
         reconnect_max: float = HERDR_RECONNECT_MAX,
         reconnect_stable_after: float = HERDR_RECONNECT_STABLE_AFTER,
     ) -> None:
-        if reconnect_initial <= 0:
-            raise ValueError("initial reconnect delay must be positive")
-        if reconnect_max < reconnect_initial:
-            raise ValueError("maximum reconnect delay must not be smaller than initial")
-        if reconnect_stable_after < 0:
-            raise ValueError("stable reconnect interval must not be negative")
         self.socket_path = resolve_herdr_socket_path(socket_path)
         self.clock = clock
         self.sleep = sleep
-        self.reconnect_initial = reconnect_initial
-        self.reconnect_max = reconnect_max
-        self.reconnect_stable_after = reconnect_stable_after
-        self._next_reconnect_delay = reconnect_initial
+        self._reconnect_backoff = CappedReconnectBackoff(
+            initial=reconnect_initial,
+            maximum=reconnect_max,
+            stable_after=reconnect_stable_after,
+        )
         self._subscription_started_at: float | None = None
         self._subscribers: list[HerdrChangeCallback] = []
         self._subscriber_lock = Lock()
@@ -304,15 +301,12 @@ class LiveHerdrAdapter:
                 self._consume_subscription()
             except (OSError, ValueError):
                 self._notify_subscribers()
-            if (
-                self._subscription_started_at is not None
-                and self.clock() - self._subscription_started_at
-                >= self.reconnect_stable_after
-            ):
-                self._next_reconnect_delay = self.reconnect_initial
-            delay = self._next_reconnect_delay
-            self._next_reconnect_delay = min(delay * 2, self.reconnect_max)
-            self.sleep(delay)
+            connected_for = (
+                None
+                if self._subscription_started_at is None
+                else max(0.0, self.clock() - self._subscription_started_at)
+            )
+            self.sleep(self._reconnect_backoff.next_delay(connected_for))
 
     def _consume_subscription(self) -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:

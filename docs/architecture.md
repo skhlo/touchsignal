@@ -184,6 +184,13 @@ The ChatGPT app tile is always present.
 The exact launch command will be discovered from the installed desktop entry at
 implementation time rather than embedded as an Omarchy-specific shell command.
 
+The live adapter listens to Hyprland's event socket for active-window, window
+open, and window close events. Those events invalidate the cached snapshot so
+the next owner cycle observes the change without waiting for the four-second
+compatibility refresh. The event listener uses one daemon thread and the same
+0.5-to-30-second capped reconnect schedule as Herdr; a connection that remains
+healthy for 10 seconds resets the schedule.
+
 ## Omarchy integration
 
 TouchSignal remains independent from the Omarchy shell.
