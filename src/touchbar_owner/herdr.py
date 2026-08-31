@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock, Thread
-from time import sleep
+from time import monotonic, sleep as default_sleep
 from typing import Protocol
 
 
@@ -44,6 +44,9 @@ HERDR_REFRESH_SUBSCRIPTIONS = tuple(
     {"type": kind.replace("_", ".", 1)}
     for kind in sorted(GLOBAL_REFRESH_EVENT_KINDS)
 )
+HERDR_RECONNECT_INITIAL = 0.5
+HERDR_RECONNECT_MAX = 30.0
+HERDR_RECONNECT_STABLE_AFTER = 10.0
 
 HerdrChangeCallback = Callable[[], None]
 
@@ -221,8 +224,30 @@ class LiveHerdrAdapter:
     The socket uses one JSON object per line with a string request id.
     """
 
-    def __init__(self, socket_path: str | None = None) -> None:
+    def __init__(
+        self,
+        socket_path: str | None = None,
+        *,
+        clock: Callable[[], float] = monotonic,
+        sleep: Callable[[float], None] = default_sleep,
+        reconnect_initial: float = HERDR_RECONNECT_INITIAL,
+        reconnect_max: float = HERDR_RECONNECT_MAX,
+        reconnect_stable_after: float = HERDR_RECONNECT_STABLE_AFTER,
+    ) -> None:
+        if reconnect_initial <= 0:
+            raise ValueError("initial reconnect delay must be positive")
+        if reconnect_max < reconnect_initial:
+            raise ValueError("maximum reconnect delay must not be smaller than initial")
+        if reconnect_stable_after < 0:
+            raise ValueError("stable reconnect interval must not be negative")
         self.socket_path = resolve_herdr_socket_path(socket_path)
+        self.clock = clock
+        self.sleep = sleep
+        self.reconnect_initial = reconnect_initial
+        self.reconnect_max = reconnect_max
+        self.reconnect_stable_after = reconnect_stable_after
+        self._next_reconnect_delay = reconnect_initial
+        self._subscription_started_at: float | None = None
         self._subscribers: list[HerdrChangeCallback] = []
         self._subscriber_lock = Lock()
         self._subscription_thread: Thread | None = None
@@ -274,11 +299,20 @@ class LiveHerdrAdapter:
 
     def _subscription_loop(self) -> None:
         while True:
+            self._subscription_started_at = None
             try:
                 self._consume_subscription()
             except (OSError, ValueError):
                 self._notify_subscribers()
-            sleep(0.5)
+            if (
+                self._subscription_started_at is not None
+                and self.clock() - self._subscription_started_at
+                >= self.reconnect_stable_after
+            ):
+                self._next_reconnect_delay = self.reconnect_initial
+            delay = self._next_reconnect_delay
+            self._next_reconnect_delay = min(delay * 2, self.reconnect_max)
+            self.sleep(delay)
 
     def _consume_subscription(self) -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
@@ -303,6 +337,7 @@ class LiveHerdrAdapter:
                     or result.get("type") != "subscription_started"
                 ):
                     raise ValueError("Herdr did not accept the event subscription")
+                self._subscription_started_at = self.clock()
                 self._notify_subscribers()
                 for line in stream:
                     event = self._decode_line(line)

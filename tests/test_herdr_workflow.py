@@ -25,6 +25,7 @@ from touchbar_owner.herdr import (
     HerdrPane,
     HerdrSnapshot,
     HerdrWorkspace,
+    LiveHerdrAdapter,
     resolve_herdr_socket_path,
 )
 from touchbar_owner.system_layer import (
@@ -844,3 +845,129 @@ class HerdrSocketPathTests(unittest.TestCase):
             resolve_herdr_socket_path(environ={}, home=home),
             "/users/example/.config/herdr/herdr.sock",
         )
+
+
+class HerdrReconnectTests(unittest.TestCase):
+    def test_repeated_subscribe_keeps_one_event_thread_and_one_callback(self) -> None:
+        threads = []
+        callbacks = 0
+
+        class FakeThread:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+                self.started = False
+                threads.append(self)
+
+            def is_alive(self) -> bool:
+                return self.started
+
+            def start(self) -> None:
+                self.started = True
+
+        def callback() -> None:
+            nonlocal callbacks
+            callbacks += 1
+
+        with patch("touchbar_owner.herdr.Thread", FakeThread):
+            adapter = LiveHerdrAdapter("/run/herdr.sock")
+            adapter.subscribe(callback)
+            adapter.subscribe(callback)
+            adapter._notify_subscribers()
+
+        self.assertEqual(len(threads), 1)
+        self.assertEqual(callbacks, 1)
+
+    def test_subscription_failures_back_off_to_a_bounded_retry_rate(self) -> None:
+        delays: list[float] = []
+
+        class StopLoop(Exception):
+            pass
+
+        def wait(delay: float) -> None:
+            delays.append(delay)
+            if len(delays) == 7:
+                raise StopLoop
+
+        adapter = LiveHerdrAdapter(
+            "/run/herdr.sock",
+            sleep=wait,
+            reconnect_initial=0.5,
+            reconnect_max=8.0,
+        )
+
+        def fail_subscription() -> None:
+            raise ConnectionError("Herdr is unavailable")
+
+        adapter._consume_subscription = fail_subscription
+
+        with self.assertRaises(StopLoop):
+            adapter._subscription_loop()
+
+        self.assertEqual(delays, [0.5, 1.0, 2.0, 4.0, 8.0, 8.0, 8.0])
+
+    def test_stable_recovered_subscription_resets_the_backoff(self) -> None:
+        clock = ManualClock()
+        delays: list[float] = []
+        connections = 0
+
+        class StopLoop(Exception):
+            pass
+
+        def wait(delay: float) -> None:
+            delays.append(delay)
+            if len(delays) == 3:
+                raise StopLoop
+
+        adapter = LiveHerdrAdapter(
+            "/run/herdr.sock",
+            clock=clock,
+            sleep=wait,
+            reconnect_initial=0.5,
+            reconnect_max=8.0,
+            reconnect_stable_after=2.0,
+        )
+
+        class FakeStream:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args) -> None:
+                return None
+
+            def readline(self) -> bytes:
+                return b'{"result":{"type":"subscription_started"}}\n'
+
+            def __iter__(self):
+                clock.advance(2.0)
+                return iter(())
+
+        class FakeSocket:
+            def __init__(self, connects: bool) -> None:
+                self.connects = connects
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args) -> None:
+                return None
+
+            def connect(self, _path: str) -> None:
+                if not self.connects:
+                    raise ConnectionError("Herdr is unavailable")
+
+            def sendall(self, _payload: bytes) -> None:
+                return None
+
+            def makefile(self, _mode: str) -> FakeStream:
+                return FakeStream()
+
+        def socket_factory(*_args) -> FakeSocket:
+            nonlocal connections
+            connections += 1
+            return FakeSocket(connects=connections == 2)
+
+        with patch("touchbar_owner.herdr.socket.socket", side_effect=socket_factory):
+            with self.assertRaises(StopLoop):
+                adapter._subscription_loop()
+
+        self.assertEqual(delays, [0.5, 0.5, 1.0])

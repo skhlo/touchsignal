@@ -161,6 +161,11 @@ The live API schema supports workspace, tab, pane, layout, focus, and agent
 status events through `events.subscribe`. TouchSignal should take one complete
 snapshot, subscribe, and resnapshot after topology changes. Bounded polling of
 `herdr api snapshot` is a compatibility fallback, not the primary design.
+Only one event thread and one copy of each callback may exist. If the event
+socket is unavailable, reconnect delays increase from 0.5 seconds to a
+30-second cap. A connection that remains healthy for 10 seconds resets the
+next outage to the initial delay, and the subscription acknowledgement requests
+an authoritative snapshot so recovery does not wait for another event.
 
 Tap focuses the selected agent pane through Herdr's supported agent-focus
 surface. If the pane has no agent, it focuses the workspace. IDs always come
