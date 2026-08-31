@@ -178,6 +178,15 @@ session. Reboot, GPU identity, monitor health, TouchSignal health, and dGPU
 holder gates all precede the privileged probe. This proof remains pending and
 must not run without separate approval for its reboot stage.
 
+The resumable proof workflow is saved as:
+
+```bash
+scripts/issue7-suspended-gpu-proof
+```
+
+Run the same command after each reboot or logout. It stores only temporary
+state, backups, and result evidence under the ignored `.scratch/` directory.
+
 ### Hardware proof safety trust envelope
 
 | Invariant | Strength | Home | Oracle and seam | Disposition and proof |

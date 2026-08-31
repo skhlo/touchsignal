@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from time import monotonic, sleep
+
+from touchbar_owner.thermal import GpuRuntimeState, LiveThermalAdapter
+
+
+GPU_DEVICE = Path("/sys/bus/pci/devices/0000:03:00.0")
+GPU_CONTROL = GPU_DEVICE / "power/control"
+GPU_RUNTIME = GPU_DEVICE / "power/runtime_status"
+
+
+def main() -> int:
+    result: dict[str, object] = {"success": False}
+    calls: list[Path] = []
+    original_control: str | None = None
+
+    def recorded_read(path: Path) -> str:
+        calls.append(path)
+        return path.read_text(encoding="utf-8")
+
+    try:
+        if (GPU_DEVICE / "vendor").read_text(encoding="utf-8").strip() != "0x1002":
+            raise RuntimeError("the expected AMD dGPU is not at PCI 03:00.0")
+        original_control = GPU_CONTROL.read_text(encoding="utf-8").strip()
+        GPU_CONTROL.write_text("auto\n", encoding="utf-8")
+
+        deadline = monotonic() + 15.0
+        while monotonic() < deadline:
+            if GPU_RUNTIME.read_text(encoding="utf-8").strip() == "suspended":
+                break
+            sleep(0.2)
+
+        before = GPU_RUNTIME.read_text(encoding="utf-8").strip()
+        adapter = LiveThermalAdapter(
+            read_text=recorded_read,
+            snapshot_interval=0.0,
+        )
+        snapshot = adapter.snapshot()
+        after = GPU_RUNTIME.read_text(encoding="utf-8").strip()
+        hwmon_root = (GPU_DEVICE / "hwmon").resolve()
+        gpu_sensor_accesses = []
+        for path in calls:
+            try:
+                resolved = path.resolve()
+            except OSError:
+                continue
+            if resolved.is_relative_to(hwmon_root):
+                gpu_sensor_accesses.append(str(path))
+
+        success = (
+            before == "suspended"
+            and snapshot.gpu_runtime == GpuRuntimeState.SUSPENDED
+            and not snapshot.gpu.available
+            and not gpu_sensor_accesses
+            and after == "suspended"
+        )
+        result.update(
+            {
+                "success": success,
+                "runtime_before": before,
+                "adapter_runtime": snapshot.gpu_runtime.value,
+                "gpu_available": snapshot.gpu.available,
+                "gpu_temperature_path": (
+                    str(adapter.gpu_temperature_path)
+                    if adapter.gpu_temperature_path is not None
+                    else None
+                ),
+                "gpu_sensor_accesses": gpu_sensor_accesses,
+                "runtime_after": after,
+            }
+        )
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        if original_control is not None:
+            try:
+                GPU_CONTROL.write_text(original_control + "\n", encoding="utf-8")
+                result["restored_control"] = GPU_CONTROL.read_text(
+                    encoding="utf-8"
+                ).strip()
+            except Exception as exc:
+                result["restore_error"] = f"{type(exc).__name__}: {exc}"
+                result["success"] = False
+
+    print(json.dumps(result, sort_keys=True))
+    return 0 if result["success"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
