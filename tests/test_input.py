@@ -5,7 +5,6 @@ import struct
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from time import monotonic
 from unittest.mock import patch
 
 from touchbar_owner.input import (
@@ -55,28 +54,13 @@ class FdSession:
 
 
 class InputWaitAdapterTests(unittest.TestCase):
-    def test_either_fn_or_touch_readiness_ends_the_idle_wait(self) -> None:
-        for ready_session in ("fn", "touch"):
-            with self.subTest(ready_session=ready_session):
-                fn_read, fn_write = os.pipe()
-                touch_read, touch_write = os.pipe()
-                try:
-                    ready_fd = fn_write if ready_session == "fn" else touch_write
-                    os.write(ready_fd, b"ready")
-                    host = LiveHost()
+    def test_idle_wait_observes_fn_and_touch_descriptors_together(self) -> None:
+        host = LiveHost()
 
-                    started = monotonic()
-                    host.wait_for_input(
-                        FdSession(fn_read),
-                        FdSession(touch_read),
-                        1.0,
-                    )
-                    elapsed = monotonic() - started
-                finally:
-                    for fd in (fn_read, fn_write, touch_read, touch_write):
-                        os.close(fd)
+        with patch("touchbar_owner.live.select.select") as wait:
+            host.wait_for_input(FdSession(11), FdSession(13), 0.5)
 
-                self.assertLess(elapsed, 0.25)
+        wait.assert_called_once_with([11, 13], [], [], 0.5)
 
 
 class FnInputAdapterTests(unittest.TestCase):

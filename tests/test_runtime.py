@@ -142,6 +142,38 @@ class RuntimePreflightTests(unittest.TestCase):
 
 
 class RuntimeOperationTests(unittest.TestCase):
+    def test_input_wait_failure_restores_and_reacquires_before_retry(self) -> None:
+        class FailingInputWaitHost(FakeHost):
+            wait_attempts = 0
+
+            def wait_for_input(
+                self,
+                _fn_session,
+                _touch_session,
+                timeout: float,
+            ) -> None:
+                self.input_wait_timeouts.append(timeout)
+                self.wait_attempts += 1
+                if self.wait_attempts == 1:
+                    raise RuntimeError("input wait failed")
+
+        with TemporaryDirectory() as raw:
+            host = FailingInputWaitHost(Path(raw))
+            runtime = SupervisedRuntime(host, restart_delay=0.0)
+            try:
+                runtime.run_supervised(
+                    cycles=1,
+                    max_restarts=1,
+                    input_timeout=0.5,
+                )
+            finally:
+                runtime.stop()
+
+        self.assertEqual(runtime.state.restarts, 1)
+        self.assertIn("input wait failed", runtime.state.failures)
+        self.assertEqual(host.operations.count("restore"), 2)
+        self.assertEqual(host.operations.count("attach"), 2)
+
     def test_fn_press_during_idle_wait_reaches_renderer_in_the_same_cycle(self) -> None:
         class FnDuringWaitHost(FakeHost):
             def wait_for_input(
