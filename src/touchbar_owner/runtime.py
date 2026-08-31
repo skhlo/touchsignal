@@ -183,4 +183,5 @@ def _same_visual_frame(
     return (
         current.surface_size == previous.surface_size
         and current.workflow_frame == previous.workflow_frame
+        and current.content_offset == previous.content_offset
     )

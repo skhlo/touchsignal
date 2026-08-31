@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from .chatgpt import ChatGPTActions, HyprlandSource, LiveHyprlandChatGPTAdapter
@@ -16,6 +17,7 @@ from .live import LiveHost
 from .owner import OwnerError, TouchBarOwner
 from .restore import restore_firmware_row
 from .runtime import PreflightError, SupervisedRuntime, SupervisedRuntimeError
+from .safeguards import PixelShiftRenderer
 from .system_layer import (
     LiveOmarchyLockSource,
     LockStateSource,
@@ -189,6 +191,7 @@ def build_product_runtime(
     herdr_source: HerdrSource | None = None,
     herdr_actions: HerdrActions | None = None,
     lock_source: LockStateSource | None = None,
+    pixel_shift_clock: Callable[[], float] | None = None,
 ) -> SupervisedRuntime:
     adapter = LiveHyprlandChatGPTAdapter()
     chatgpt = ChatGPTWorkflow(source or adapter, actions or adapter)
@@ -198,14 +201,16 @@ def build_product_runtime(
         herdr_actions or herdr_adapter,
         chatgpt=chatgpt,
     )
-    return SupervisedRuntime(
-        host,
-        renderer=SystemLayerWorkflow(
-            herdr,
-            lock_source or LiveOmarchyLockSource(),
-        ),
-        restart_delay=restart_delay,
+    system_layer = SystemLayerWorkflow(
+        herdr,
+        lock_source or LiveOmarchyLockSource(),
     )
+    renderer = (
+        PixelShiftRenderer(system_layer)
+        if pixel_shift_clock is None
+        else PixelShiftRenderer(system_layer, clock=pixel_shift_clock)
+    )
+    return SupervisedRuntime(host, renderer=renderer, restart_delay=restart_delay)
 
 
 def cmd_run(args: argparse.Namespace) -> int:

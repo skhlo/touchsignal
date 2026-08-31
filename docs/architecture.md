@@ -161,6 +161,11 @@ The live API schema supports workspace, tab, pane, layout, focus, and agent
 status events through `events.subscribe`. TouchSignal should take one complete
 snapshot, subscribe, and resnapshot after topology changes. Bounded polling of
 `herdr api snapshot` is a compatibility fallback, not the primary design.
+Only one event thread and one copy of each callback may exist. If the event
+socket is unavailable, reconnect delays increase from 0.5 seconds to a
+30-second cap. A connection that remains healthy for 10 seconds resets the
+next outage to the initial delay, and the subscription acknowledgement requests
+an authoritative snapshot so recovery does not wait for another event.
 
 Tap focuses the selected agent pane through Herdr's supported agent-focus
 surface. If the pane has no agent, it focuses the workspace. IDs always come
@@ -178,6 +183,13 @@ The ChatGPT app tile is always present.
 
 The exact launch command will be discovered from the installed desktop entry at
 implementation time rather than embedded as an Omarchy-specific shell command.
+
+The live adapter listens to Hyprland's event socket for active-window, window
+open, and window close events. Those events invalidate the cached snapshot so
+the next owner cycle observes the change without waiting for the four-second
+compatibility refresh. The event listener uses one daemon thread and the same
+0.5-to-30-second capped reconnect schedule as Herdr; a connection that remains
+healthy for 10 seconds resets the schedule.
 
 ## Omarchy integration
 
@@ -217,6 +229,13 @@ State changes use an immediate update or a short cross-fade. They do not slide
 the entire row or use decorative looping motion. The tile layout remains stable
 as labels and states update.
 
+The product renderer mitigates OLED burn-in by moving all visible workflow
+content through a deterministic nine-position, one-pixel pattern once per
+minute. The black panel background, touch targets, and action geometry remain
+fixed. A cadence change presents a new frame even when the workflow state has
+not changed. This safety motion is small enough to avoid visible jitter and is
+not disabled as decorative motion.
+
 TouchSignal is supplemental. Every action remains available through the normal
 keyboard, Herdr, Hyprland, ChatGPT, and coding-agent interfaces. A Touch Bar
 failure cannot be the only route to an action.
@@ -253,6 +272,10 @@ an unavailable lock source, a timeout, and malformed output all select the same
 privacy-safe media layer. That layer has no agent-bearing frame fields. Unlock
 forces fresh Herdr and Hyprland snapshots before an agent frame can return.
 Theme, sensor, Herdr, and Hyprland failures do not sit on the media path.
+Unavailable lock-source retries back off from 0.25 seconds to a 30-second cap,
+while the privacy-safe media layer appears immediately. Any valid locked or
+unlocked verdict resets that failure schedule. Locked verdicts keep their short
+poll interval, and unlocked verdicts remain uncached.
 
 On-device acceptance on MacBookPro16,1 verified physical Fn press/release,
 all seven brightness, transport, and volume actions exactly once on release,

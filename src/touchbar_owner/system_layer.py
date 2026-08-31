@@ -7,6 +7,7 @@ from enum import StrEnum
 from time import monotonic
 from typing import Protocol
 
+from .safeguards import CappedReconnectBackoff
 from .types import (
     NATIVE_HEIGHT,
     NATIVE_WIDTH,
@@ -23,6 +24,8 @@ MEDIA_ACTIONS = tuple(MediaAction)
 MEDIA_TARGET_HEIGHT = 46
 MEDIA_TARGET_GAP = 4
 MEDIA_TARGET_MARGIN = 4
+LOCK_FAILURE_BACKOFF_INITIAL = 0.25
+LOCK_FAILURE_BACKOFF_MAX = 30.0
 
 
 class LockState(StrEnum):
@@ -43,12 +46,20 @@ class LiveOmarchyLockSource:
         timeout: float = 0.5,
         clock=monotonic,
         poll_interval: float = 0.25,
+        failure_backoff_initial: float = LOCK_FAILURE_BACKOFF_INITIAL,
+        failure_backoff_max: float = LOCK_FAILURE_BACKOFF_MAX,
     ) -> None:
         self.run = run
         self.timeout = timeout
         self.clock = clock
         self.poll_interval = poll_interval
+        self._failure_backoff = CappedReconnectBackoff(
+            initial=failure_backoff_initial,
+            maximum=failure_backoff_max,
+            stable_after=0.0,
+        )
         self._checked_at: float | None = None
+        self._retry_at: float | None = None
         self._cached_state = LockState.UNAVAILABLE
 
     def state(self) -> LockState:
@@ -57,11 +68,26 @@ class LiveOmarchyLockSource:
             self._checked_at is not None
             and self._cached_state != LockState.UNLOCKED
             and now >= self._checked_at
-            and now - self._checked_at < self.poll_interval
         ):
-            return self._cached_state
+            if (
+                self._cached_state == LockState.UNAVAILABLE
+                and self._retry_at is not None
+                and now < self._retry_at
+            ):
+                return self._cached_state
+            if (
+                self._cached_state == LockState.LOCKED
+                and now - self._checked_at < self.poll_interval
+            ):
+                return self._cached_state
         self._cached_state = self._query_state()
         self._checked_at = self.clock()
+        if self._cached_state == LockState.UNAVAILABLE:
+            delay = self._failure_backoff.next_delay()
+            self._retry_at = self._checked_at + delay
+        else:
+            self._failure_backoff.reset()
+            self._retry_at = None
         return self._cached_state
 
     def _query_state(self) -> LockState:

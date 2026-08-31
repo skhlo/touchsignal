@@ -4,6 +4,7 @@ import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from touchbar_owner.cli import build_product_runtime
 from touchbar_owner.chatgpt import (
@@ -12,6 +13,7 @@ from touchbar_owner.chatgpt import (
     HyprlandSnapshot,
     LiveHyprlandChatGPTAdapter,
     parse_active_address,
+    parse_hyprland_event,
     parse_hyprland_clients,
 )
 from touchbar_owner.host import FakeHost
@@ -437,6 +439,141 @@ class ChatGPTRuntimeWorkflowTests(unittest.TestCase):
 
 
 class ChatGPTAdapterParsingTests(unittest.TestCase):
+    def test_repeated_snapshot_keeps_one_hyprland_event_thread(self) -> None:
+        threads = []
+
+        class FakeThread:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+                self.started = False
+                threads.append(self)
+
+            def is_alive(self) -> bool:
+                return self.started
+
+            def start(self) -> None:
+                self.started = True
+
+        class EmptyAdapter(LiveHyprlandChatGPTAdapter):
+            def _json(self, command: list[str]) -> object:
+                return [] if command[-1] == "clients" else {}
+
+        with patch("touchbar_owner.chatgpt.Thread", FakeThread):
+            adapter = EmptyAdapter()
+            adapter.snapshot()
+            adapter.snapshot()
+
+        self.assertEqual(len(threads), 1)
+
+    def test_window_events_invalidate_the_snapshot_without_waiting_for_poll(self) -> None:
+        clock = ManualClock()
+
+        class CountingAdapter(LiveHyprlandChatGPTAdapter):
+            def __init__(self) -> None:
+                super().__init__(clock=clock)
+                self.commands: list[tuple[str, ...]] = []
+
+            def _ensure_event_subscription(self) -> None:
+                return None
+
+            def _json(self, command: list[str]) -> object:
+                self.commands.append(tuple(command))
+                return [] if command[-1] == "clients" else {}
+
+        adapter = CountingAdapter()
+        self.assertTrue(adapter.snapshot().available)
+        self.assertEqual(len(adapter.commands), 2)
+
+        self.assertIsNone(parse_hyprland_event(b"workspace>>2\n"))
+        self.assertFalse(adapter._handle_event_line(b"workspace>>2\n"))
+        self.assertTrue(adapter.snapshot().available)
+        self.assertEqual(len(adapter.commands), 2)
+
+        self.assertEqual(
+            parse_hyprland_event(b"activewindowv2>>0xabc\n"),
+            "activewindowv2",
+        )
+        self.assertTrue(adapter._handle_event_line(b"activewindowv2>>0xabc\n"))
+        self.assertTrue(adapter.snapshot().available)
+        self.assertEqual(len(adapter.commands), 4)
+
+    def test_live_event_socket_uses_session_path_and_invalidates_on_window_event(self) -> None:
+        class FakeStream:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args) -> None:
+                return None
+
+            def __iter__(self):
+                return iter(
+                    (
+                        b"workspace>>2\n",
+                        b"openwindow>>abc,2,chatgpt,ChatGPT\n",
+                    )
+                )
+
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.connected: str | None = None
+                self.closed = False
+
+            def connect(self, path: str) -> None:
+                self.connected = path
+
+            def makefile(self, _mode: str) -> FakeStream:
+                return FakeStream()
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FakeSocket()
+        adapter = LiveHyprlandChatGPTAdapter(
+            environ={
+                "XDG_RUNTIME_DIR": "/run/user/1000",
+                "HYPRLAND_INSTANCE_SIGNATURE": "instance",
+            },
+            event_socket_factory=lambda: connection,
+        )
+        adapter._snapshot_at = 1.0
+
+        with self.assertRaises(ConnectionError):
+            adapter._consume_events()
+
+        self.assertEqual(
+            connection.connected,
+            "/run/user/1000/hypr/instance/.socket2.sock",
+        )
+        self.assertIsNone(adapter._snapshot_at)
+        self.assertTrue(connection.closed)
+
+    def test_event_socket_failures_reconnect_once_with_capped_backoff(self) -> None:
+        delays: list[float] = []
+
+        class StopLoop(Exception):
+            pass
+
+        def wait(delay: float) -> None:
+            delays.append(delay)
+            if len(delays) == 7:
+                raise StopLoop
+
+        adapter = LiveHyprlandChatGPTAdapter(
+            sleep=wait,
+            reconnect_initial=0.5,
+            reconnect_max=8.0,
+        )
+
+        def fail_events() -> None:
+            raise ConnectionError("Hyprland is unavailable")
+
+        adapter._consume_events = fail_events
+
+        with self.assertRaises(StopLoop):
+            adapter._event_loop()
+
+        self.assertEqual(delays, [0.5, 1.0, 2.0, 4.0, 8.0, 8.0, 8.0])
+
     def test_live_snapshot_polling_is_bounded(self) -> None:
         clock = ManualClock()
 
@@ -444,6 +581,9 @@ class ChatGPTAdapterParsingTests(unittest.TestCase):
             def __init__(self) -> None:
                 super().__init__(clock=clock)
                 self.commands: list[tuple[str, ...]] = []
+
+            def _ensure_event_subscription(self) -> None:
+                return None
 
             def _json(self, command: list[str]) -> object:
                 self.commands.append(tuple(command))
