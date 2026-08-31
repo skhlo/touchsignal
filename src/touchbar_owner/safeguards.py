@@ -46,10 +46,13 @@ class CappedReconnectBackoff:
 
     def next_delay(self, connected_for: float | None = None) -> float:
         if connected_for is not None and connected_for >= self.stable_after:
-            self._next = self.initial
+            self.reset()
         delay = self._next
         self._next = min(delay * 2, self.maximum)
         return delay
+
+    def reset(self) -> None:
+        self._next = self.initial
 
 
 class PixelShiftRenderer:

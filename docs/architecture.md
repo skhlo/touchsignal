@@ -272,6 +272,10 @@ an unavailable lock source, a timeout, and malformed output all select the same
 privacy-safe media layer. That layer has no agent-bearing frame fields. Unlock
 forces fresh Herdr and Hyprland snapshots before an agent frame can return.
 Theme, sensor, Herdr, and Hyprland failures do not sit on the media path.
+Unavailable lock-source retries back off from 0.25 seconds to a 30-second cap,
+while the privacy-safe media layer appears immediately. Any valid locked or
+unlocked verdict resets that failure schedule. Locked verdicts keep their short
+poll interval, and unlocked verdicts remain uncached.
 
 On-device acceptance on MacBookPro16,1 verified physical Fn press/release,
 all seven brightness, transport, and volume actions exactly once on release,

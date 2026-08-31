@@ -266,7 +266,78 @@ class SystemLayerWorkflowTests(unittest.TestCase):
 
 
 class OmarchyLockAdapterTests(unittest.TestCase):
+    def test_unavailable_source_retries_with_capped_exponential_backoff(self) -> None:
+        clock = ManualClock()
+        calls = 0
+
+        def run(_command: list[str], **_kwargs):
+            nonlocal calls
+            calls += 1
+            raise TimeoutError
+
+        source = LiveOmarchyLockSource(
+            run=run,
+            clock=clock,
+            poll_interval=0.25,
+            failure_backoff_max=2.0,
+        )
+
+        self.assertEqual(source.state(), LockState.UNAVAILABLE)
+        self.assertEqual(source.state(), LockState.UNAVAILABLE)
+        self.assertEqual(calls, 1)
+
+        for delay, expected_calls in (
+            (0.25, 2),
+            (0.5, 3),
+            (1.0, 4),
+            (2.0, 5),
+            (2.0, 6),
+        ):
+            clock.advance(delay - 0.001)
+            self.assertEqual(source.state(), LockState.UNAVAILABLE)
+            self.assertEqual(calls, expected_calls - 1)
+            clock.advance(0.001)
+            self.assertEqual(source.state(), LockState.UNAVAILABLE)
+            self.assertEqual(calls, expected_calls)
+
+    def test_healthy_lock_verdict_resets_failure_backoff(self) -> None:
+        clock = ManualClock()
+        outputs: list[object] = [
+            TimeoutError(),
+            TimeoutError(),
+            "true\n",
+            TimeoutError(),
+            TimeoutError(),
+        ]
+        calls = 0
+
+        def run(command: list[str], **_kwargs):
+            nonlocal calls
+            calls += 1
+            output = outputs.pop(0)
+            if isinstance(output, BaseException):
+                raise output
+            return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+
+        source = LiveOmarchyLockSource(run=run, clock=clock)
+
+        self.assertEqual(source.state(), LockState.UNAVAILABLE)
+        clock.advance(0.25)
+        self.assertEqual(source.state(), LockState.UNAVAILABLE)
+        clock.advance(0.5)
+        self.assertEqual(source.state(), LockState.LOCKED)
+
+        clock.advance(0.25)
+        self.assertEqual(source.state(), LockState.UNAVAILABLE)
+        clock.advance(0.249)
+        self.assertEqual(source.state(), LockState.UNAVAILABLE)
+        self.assertEqual(calls, 4)
+        clock.advance(0.001)
+        self.assertEqual(source.state(), LockState.UNAVAILABLE)
+        self.assertEqual(calls, 5)
+
     def test_exact_is_locked_results_are_bounded_and_fail_closed(self) -> None:
+        clock = ManualClock()
         calls: list[tuple[list[str], dict[str, object]]] = []
         outputs: list[object] = ["false\n", "true\n", "not-a-lock-state\n", TimeoutError()]
 
@@ -277,11 +348,17 @@ class OmarchyLockAdapterTests(unittest.TestCase):
                 raise output
             return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
-        source = LiveOmarchyLockSource(run=run, timeout=0.25, poll_interval=0.0)
+        source = LiveOmarchyLockSource(
+            run=run,
+            timeout=0.25,
+            clock=clock,
+            poll_interval=0.0,
+        )
 
         self.assertEqual(source.state(), LockState.UNLOCKED)
         self.assertEqual(source.state(), LockState.LOCKED)
         self.assertEqual(source.state(), LockState.UNAVAILABLE)
+        clock.advance(0.25)
         self.assertEqual(source.state(), LockState.UNAVAILABLE)
         self.assertEqual(
             [command for command, _kwargs in calls],
