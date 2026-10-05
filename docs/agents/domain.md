@@ -6,7 +6,7 @@ TouchSignal uses a single-context domain layout.
 
 Read these sources when they exist:
 
-- `CONTEXT.md`
+- `GLOSSARY.md`
 - relevant ADRs under `docs/adr/`
 
 Proceed silently when they do not exist. Domain-modeling work creates them only
@@ -17,7 +17,7 @@ ownership.
 
 ```text
 /
-├── CONTEXT.md
+├── GLOSSARY.md
 ├── docs/
 │   └── adr/
 └── src/
@@ -25,7 +25,7 @@ ownership.
 
 ## Vocabulary
 
-Use terms defined in `CONTEXT.md` in issues, specifications, tests, and code.
+Use terms defined in `GLOSSARY.md` in issues, specifications, tests, and code.
 Do not replace established terms with unrecorded synonyms.
 
 If a required concept is missing, determine whether the proposed term is

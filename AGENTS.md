@@ -12,7 +12,7 @@ Use the five default Matt Pocock triage labels. See `docs/agents/triage-labels.m
 
 ### Domain docs
 
-Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository root. See `docs/agents/domain.md`.
+Use a single-context layout with `GLOSSARY.md` and `docs/adr/` at the repository root. See `docs/agents/domain.md`.
 
 ## GitHub communication
 
